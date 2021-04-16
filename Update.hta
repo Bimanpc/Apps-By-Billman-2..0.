@@ -1,0 +1,2480 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<title>UpdateCheck</title>
+<HTA:APPLICATION
+  APPLICATIONNAME="UpdateCheck"
+  ID="UpdateCheck"
+  VERSION="1.40"
+  SCROLL="no"
+  SINGLEINSTANCE="yes"/>
+ 
+<style type="text/css">
+body, html
+{
+	height: 100%;
+	width: 100%;
+}
+ 
+body
+{
+	background-color: #ff8000;
+	color: white;
+	font-family: Arial, sans-serif;
+	font-size: 12pt;
+	height: 100%;
+	margin: 0;
+	overflow: auto;
+	padding: 0;
+	filter: progid:DXImageTransform.Microsoft.Gradient(GradientType=0, StartColorStr='#200000', EndColorStr='#ff8000');
+}
+ 
+a
+{
+	color: yellow;
+}
+ 
+div.Content
+{
+	margin: 10px auto 10px auto;
+	max-width: 1260px;
+	width: 96%;
+}
+ 
+input[type=button]
+{
+	height: 2em;
+	width: 12em;
+}
+ 
+input[type=text]
+{
+	text-align: right;
+}
+ 
+td
+{
+/*
+	border: 1px solid white;
+*/
+	padding: 5px 10px 0 5px;
+}
+ 
+th
+{
+/*
+	border: 1px solid white;
+*/
+}
+ 
+tr
+{
+	height: 2em;
+	vertical-align: middle;
+}
+ 
+.Button
+{
+	font-size: 12pt;
+	height: 2em;
+	width: 16em;
+}
+ 
+.Center
+{
+	margin-left: auto;
+	margin-right: auto;
+	text-align: center;
+}
+ 
+.Content
+{
+	margin: auto 0 auto 0;
+	padding: auto 0 auto 0;
+}
+ 
+.Left
+{
+	text-align: left;
+}
+ 
+.Right
+{
+	text-align: right;
+}
+ 
+#CopyrightsNotice
+{
+	font-size:80%;
+	padding-bottom: 10px;
+}
+</style>
+ 
+<!-- This "HHCtrlMinimizeWindowObject" works together with the JavaScript function "minWin()" and the hidden input "MinimizeWindow" to minimize the HTA window (use "MinimizeWindow.click" in VBScript) -->
+<object id="HHCtrlMinimizeWindowObject" classid="clsid:adb880a6-d8ff-11cf-9377-00aa003b7a11">
+<param name="command" value="minimize" />
+</object>
+ 
+<script type="text/javascript">
+function _jsMinWin( ) { HHCtrlMinimizeWindowObject.Click( ); };
+</script>
+ 
+</head>
+ 
+<script type="text/vbscript">
+Option Explicit
+ 
+Const ForAppending = 8
+Const ForReading   = 1
+Const ForWriting   = 2
+ 
+Const TristateFalse      =  0
+Const TristateMixed      = -2
+Const TristateTrue       = -1
+Const TristateUseDefault = -2
+ 
+Const HKEY_CLASSES_ROOT              = &H80000000
+Const HKEY_CURRENT_USER              = &H80000001
+Const HKEY_LOCAL_MACHINE             = &H80000002
+Const HKEY_USERS                     = &H80000003
+Const HKEY_CURRENT_CONFIG            = &H80000005
+Const HKEY_DYN_DATA                  = &H80000006 ' Windows 95/98 only
+ 
+Const REG_SZ                         =  1
+Const REG_EXPAND_SZ                  =  2
+Const REG_BINARY                     =  3
+Const REG_DWORD                      =  4
+Const REG_DWORD_BIG_ENDIAN           =  5
+Const REG_LINK                       =  6
+Const REG_MULTI_SZ                   =  7
+Const REG_RESOURCE_LIST              =  8
+Const REG_FULL_RESOURCE_DESCRIPTOR   =  9
+Const REG_RESOURCE_REQUIREMENTS_LIST = 10
+Const REG_QWORD                      = 11
+ 
+Const URL_DOWNLOAD_ZIP   = "http://www.robvanderwoude.com/files/updatecheck.zip"
+Const URL_LATESTVER_HTA  = "http://www.robvanderwoude.com/getlatestver.php?progfile=UpdateCheck.hta"
+Const URL_LATESTVER_INI  = "http://www.robvanderwoude.com/getlatestver.php?progfile=UpdateCheck.ini"
+Const URL_PRODUCT        = "http://www.robvanderwoude.com/updatecheck.php"
+Const URL_WEB_INI        = "http://www.robvanderwoude.com/files/updatecheck_ini.txt"
+ 
+Dim gvaCustomEntries, gvaDownloadReg, gvaHideProg, gvaHives, gvaIgnoreDots, gvaLatestVersions, gvaProgNames, gvaProgVersions
+Dim gvbBW, gvbChanged, gvbCustomEntries, gvbDebug, gvbDontSaveWebPages, gvbForceCheck, gvbLatestListComplete, gvbQuiet, gvbSkipDowngrades, gvbSkipNotInstalled, gvbSkipWMI, gvbUpdateProgList, gvbUpdatesFound
+Dim gviKeyLength, gviMinHeight, gviMinWidth, gviPID, gviWindowHeight, gviWindowWidth
+Dim gvoIEDebug, gvoTable, gvoUpdateTable
+Dim gvsCommandLine, gvsComputerName, gvsConfigFile, gvsCurDir, gvsINIFile, gvsINIVersion, gvsWebINIVersion, gvsZIPFile
+Dim gvtTimer
+ 
+ 
+ 
+ 
+Sub Backup( mySourceFile, myTargetFile )
+	' Backup a file; the command processor' internal COPY command is used because it handles open files much better than the FileSystemObject does
+	Dim wshShell
+	Set wshShell = CreateObject( "WScript.Shell" )
+	wshShell.Run "CMD.EXE /C COPY /Y """ & mySourceFile & """ """ & myTargetFile & """ >NUL 2>&1", 7, True
+	Set wshShell = Nothing
+End Sub
+ 
+ 
+ 
+ 
+Sub CheckBoxClicked( myProgID )
+	Dim blnSelected
+	blnSelected = document.getElementById( "CheckBox_" & myProgID ).checked
+	gvbChanged  = True
+	ButtonSaveChanges.disabled = False
+End Sub
+ 
+ 
+ 
+ 
+Sub CheckProgUpdate( myProg )
+	Dim strURL, wshShell
+	If myProg = "UpdateCheckHTA" Then
+		DebugMessage "Check update for UpdateCheck (this HTA)"
+		strURL = URL_PRODUCT
+	Else
+		DebugMessage "Check update for " & ReadINI( gvsINIFile, myProg, "ProgName" )
+		strURL = ReadINI( gvsINIFile, myProg, "WebsiteVersion" )
+	End If
+	Set wshShell = CreateObject( "Wscript.Shell" )
+	wshShell.Run """" & strURL & """", 3, False
+	Set wshShell = Nothing
+End Sub
+ 
+ 
+ 
+ 
+Sub ClearIECache( )
+	Dim wshShell
+	Set WshShell = CreateObject( "Wscript.Shell" )
+	wshShell.Run "RUNDll32.EXE InetCpl.cpl,ClearMyTracksByProcess 8", 7, True
+	Set WshShell = Nothing
+End Sub
+ 
+ 
+ 
+ 
+Sub ClearNotInstalled( )
+	Dim i, strDebug, strKey, strVal
+	strDebug = ""
+	For i = 0 To gvaHideProg.Count - 1
+		strKey = gvaHideProg.GetKey( i )
+		strVal = gvaHideProg.Item( strKey )
+		If strVal <> "" Then
+			gvaProgNames.Remove strKey
+			strDebug = strDebug & "Removing """ & strKey & """ from ProgNames array" & vbCrLf
+		End If
+	Next
+	DebugMessage Strip( strDebug )
+End Sub
+ 
+ 
+ 
+Sub ClearTable( )
+	While gvoTable.hasChildNodes( )
+		gvoTable.removeChild gvoTable.firstChild
+	Wend
+End Sub
+ 
+ 
+ 
+ 
+Function CompareVersions( myVer1, myVer2 )
+	' This function compares 2 version strings and returns the highest one
+	Dim arrVer1, arrVer2, i, strVer1, strVer2, strVersion
+	strVer1    = Replace( myVer1, "-", "." )
+	strVer2    = Replace( myVer2, "-", "." )
+	If strVer1 = "" Or strVer1 = "0" Then strVer1 = "0.0.0.0"
+	If strVer2 = "" Or strVer2 = "0" Then strVer2 = "0.0.0.0"
+	' Remove leading zeros except for the first digit
+	strVer1    = Replace( strVer1, ".0", "." )
+	strVer2    = Replace( strVer2, ".0", "." )
+	strVer1    = Replace( strVer1, ".0", "." )
+	strVer2    = Replace( strVer2, ".0", "." )
+	strVer1    = Replace( strVer1, ".0", "." )
+	strVer2    = Replace( strVer2, ".0", "." )
+	strVer1    = Replace( strVer1, "..", ".0." )
+	strVer2    = Replace( strVer2, "..", ".0." )
+	strVer1    = Replace( strVer1, "..", ".0." )
+	strVer2    = Replace( strVer2, "..", ".0." )
+	strVer1    = Replace( strVer1, "..", ".0." )
+	strVer2    = Replace( strVer2, "..", ".0." )
+	If Right( strVer1, 1 ) = "." Then strVer1 = strVer1 & "0"
+	If Right( strVer2, 1 ) = "." Then strVer2 = strVer2 & "0"
+	strVersion = ""
+	arrVer1    = Split( strVer1, "." )
+	arrVer2    = Split( strVer2, "." )
+	For i = 0 To Min( UBound( arrVer1 ), UBound( arrVer2 ) )
+		If arrVer1(i) <> arrVer2(i) Then
+			If CLng( arrVer1(i) ) > CLng( arrVer2(i) ) Then strVersion = strVer1
+			If CLng( arrVer1(i) ) < CLng( arrVer2(i) ) Then strVersion = strVer2
+			Exit For
+		End If
+	Next
+	If strVersion = "" Then
+		If UBound( arrVer1 ) > UBound( arrVer2 ) Then
+			strVersion = strVer1
+		Else
+			strVersion = strVer2
+		End If
+	End If
+	CompareVersions = strVersion
+End Function
+ 
+ 
+ 
+ 
+Sub CreateTable( )
+	Dim i, j
+	Dim objCell0, objCell1, objCell2, objCell3, objCell4, objRow
+	Dim strProgID
+	DebugMessage "Creating table for " & gvaProgNames.Count & " programs . . ."
+	Set objRow   = gvoTable.insertRow(0)
+	Set objCell0 = objRow.insertCell(0)
+	Set objCell1 = objRow.insertCell(1)
+	Set objCell2 = objRow.insertCell(2)
+	Set objCell3 = objRow.insertCell(3)
+	Set objCell4 = objRow.insertCell(4)
+	objRow.style.fontWeight  = "bold"
+	objCell0.style.textAlign = "center"
+	objCell1.style.textAlign = "left"
+	objCell2.style.textAlign = "right"
+	objCell3.style.textAlign = "right"
+	objCell4.style.width     = "8em"
+	objCell0.innerHTML = "Include"
+	objCell1.innerHTML = "Program Name"
+	objCell2.innerHTML = "Installed Version"
+	objCell3.innerHTML = "Latest Version"
+	Set objCell4 = Nothing
+	Set objCell3 = Nothing
+	Set objCell2 = Nothing
+	Set objCell1 = Nothing
+	Set objCell0 = Nothing
+	Set objRow   = Nothing
+	For i = 0 To gvaProgNames.Count - 1
+		strProgID = gvaProgNames.GetKey(i)
+		j = i + 1
+		Set objRow   = gvoTable.insertRow(j)
+		Set objCell0 = objRow.insertCell(0)
+		Set objCell1 = objRow.insertCell(1)
+		Set objCell2 = objRow.insertCell(2)
+		Set objCell3 = objRow.insertCell(3)
+		Set objCell4 = objRow.insertCell(4)
+		objCell0.style.textAlign = "center"
+		objCell1.style.textAlign = "left"
+		objCell2.style.textAlign = "right"
+		objCell3.style.textAlign = "right"
+		objCell4.style.textAlign = "center"
+		objRow.id   = "Row_" & strProgID
+		objCell1.id = "Progname_"         & strProgID
+		objCell2.id = "InstalledVersion_" & strProgID
+		objCell3.id = "LatestVersion_"    & strProgID
+		objCell4.id = "VersionMatch_"     & strProgID
+		objCell0.innerHTML = "<input id=""CheckBox_" & strProgID & """ type=""checkbox"" onclick=""CheckBoxClicked('" & strProgID & "')"">"
+		objCell1.innerHTML = "<label for=""CheckBox_" & strProgID & """>" & gvaProgNames.Item( strProgID ) & "</label>"
+		Set objCell4 = Nothing
+		Set objCell3 = Nothing
+		Set objCell2 = Nothing
+		Set objCell1 = Nothing
+		Set objCell0 = Nothing
+		Set objRow   = Nothing
+		document.body.scrollTop = document.body.scrollTop + document.body.scrollHeight
+	Next
+End Sub
+ 
+ 
+ 
+ 
+Sub Credits( )
+	If ButtonCredits.value = "Credits" Then
+		AllProgTable.style.display      = "none"
+		CreditsBlock.style.display      = "block"
+		ButtonCredits.value             = "Back"
+		ButtonSaveChanges.disabled      = True
+		ButtonShowAllDownloads.disabled = True
+		ButtonUpdateProgList.disabled   = True
+	Else
+		AllProgTable.style.display      = "block"
+		CreditsBlock.style.display      = "none"
+		ButtonCredits.value             = "Credits"
+		ButtonShowAllDownloads.disabled = False
+		ButtonSaveChanges.disabled      = False
+		ButtonUpdateProgList.disabled   = False
+	End If
+End Sub
+ 
+ 
+ 
+ 
+Function DebugBool( myVar )
+	If IsNullOrEmpty( myVar ) Then
+		DebugBool = "FALSE"
+	ElseIf myVar Then
+		DebugBool = "TRUE"
+	Else
+		DebugBool = "FALSE"
+	End If
+End Function
+ 
+ 
+ 
+ 
+Sub DebugMessage( myMsg )
+	If gvbDebug Then
+'		On Error Resume Next
+		If Not IsObject( gvoIEDebug ) Then
+			Set gvoIEDebug = CreateObject( "InternetExplorer.Application" )
+			gvoIEDebug.Height = gviWindowHeight
+			gvoIEDebug.Width  = gviWindowWidth
+			gvoIEDebug.AddressBar = False
+			gvoIEDebug.MenuBar    = False
+			gvoIEDebug.StatusBar  = False
+			gvoIEDebug.ToolBar    = False
+			gvoIEDebug.Visible    = True
+			gvoIEDebug.Navigate "about:blank"
+			gvoIEDebug.Document.title = "UpdateCheck " & UpdateCheck.Version & " Debugging Info"
+		End If
+		gvoIEDebug.Document.body.innerHTML = gvoIEDebug.Document.body.innerHTML & vbCrLf & "<pre>" & vbCrLf & myMsg & vbCrLf & "</pre>" & vbCrLf
+		' Scroll IE to end of document
+		' http://stackoverflow.com/questions/5936668/vbscript-how-to-force-the-ie-scroll-bars-to-lock-to-the-bottom
+		gvoIEDebug.Document.body.scrollTop = gvoIEDebug.Document.body.scrollTop + gvoIEDebug.Document.body.scrollHeight
+		On Error Goto 0
+	End If
+End Sub
+ 
+ 
+ 
+ 
+Function DebugProgList( )
+	Dim i, strMsg, strProgID
+	strMsg = "<b>List of programs, read from INI file:</b>" & vbCrLf & vbCrLf
+	For i = 0 To gvaProgNames.Count - 1
+		strProgID = gvaProgNames.GetKey( i )
+		gviKeyLength = Max( gviKeyLength, Len( strProgID ) )
+	Next
+	For i = 0 To gvaProgNames.Count - 1
+		strProgID = gvaProgNames.GetKey(i)
+		strMsg = strMsg & Pad( strProgID, gviKeyLength ) & " = " & gvaProgNames.Item( strProgID ) & vbCrLf
+	Next
+	DebugProgList = strMsg
+End Function
+ 
+ 
+ 
+ 
+Function Download( myURL, myFile )
+	Dim i, intLen, objFile, objFSO, objHTTP
+	intLen = 0
+'	On Error Resume Next
+	Set objFSO  = CreateObject( "Scripting.FileSystemObject" )
+	Set objFile = objFSO.OpenTextFile( myFile, ForWriting, True )
+	Set objHTTP = CreateObject( "WinHttp.WinHttpRequest.5.1" )
+	objHTTP.Open "GET", myURL, False
+	objHTTP.Send
+	' Write the downloaded byte stream to the target file
+	intLen = LenB( objHTTP.ResponseBody )
+	For i = 1 To intLen
+		objFile.Write Chr( AscB( MidB( objHTTP.ResponseBody, i, 1 ) ) )
+	Next
+	objFile.Close( )
+	On Error Goto 0
+	Set objHTTP = Nothing
+	Set objFile = Nothing
+	Set objFSO  = Nothing
+	Download = intLen
+End Function
+ 
+ 
+ 
+ 
+Sub DownloadProgUpdate( myProg )
+	Dim intAnswer, intButtons
+	Dim strMsg, strTitle, strURL, wshShell
+	If myProg = "UpdateCheckHTA" Then
+		DebugMessage "Download update for UpdateCheck (this HTA)"
+	Else
+		DebugMessage "Download update for " & ReadINI( gvsINIFile, myProg, "ProgName" )
+	End If
+	If gvaDownloadReg.Item( myProg ) <> "" Then
+		strMsg     = "The general download page for this software allows you to either buy or renew a license, or download a trial version." & vbCrLf _
+		           & "If you bought a license before, check with the manufacturer or vendor to see if you are entitled to a free upgrade." & vbCrLf _
+		           & "If so, you may need an alternative URL to download a registered version." & vbCrLf & vbCrLf _
+		           & "Do you want to continue navigating to the general download page?"
+		strTitle   = "Unregistered Download"
+		intButtons = vbYesNoCancel + vbInformation + vbApplicationModal
+		intAnswer  = MsgBox( strMsg, intButtons, strTitle )
+		If intAnswer <> vbYes Then Exit Sub
+	End If
+	Set wshShell = CreateObject( "Wscript.Shell" )
+	If myProg = "UpdateCheckHTA" Then
+		wshShell.Run """" & URL_PRODUCT & """"
+	ElseIf myProg = "UpdateCheckINI" Then
+		Backup gvsINIFile, gvsINIFile & "." & gvsINIVersion & ".backup." & TimeStamp( )
+		Download URL_WEB_INI, gvsINIFile
+	Else
+		wshShell.Run """" & ReadINI( gvsINIFile, myProg, "WebsiteDownload" ) & """"
+	End If
+	Set wshShell = Nothing
+End Sub
+ 
+ 
+ 
+ 
+Function Escape( myText )
+	Dim strText
+	strText = Replace( myText, "&", "&amp;" )
+	strText = Replace( strText, "<", "&lt;" )
+	strText = Replace( strText, ">", "&gt;" )
+	Escape = strText
+End Function
+ 
+ 
+ 
+ 
+Sub Extract( myZIPFile, myTargetDir )
+	Dim intOptions, objShell, objSource, objTarget
+	Set objShell  = CreateObject( "Shell.Application" )
+	Set objSource = objShell.NameSpace( myZIPFile ).Items( )
+	Set objTarget = objShell.NameSpace( myTargetDir )
+	' These are the available CopyHere options, according to MSDN
+	' (http://msdn2.microsoft.com/en-us/library/ms723207.aspx).
+	' On my test systems, however, the options were completely ignored.
+	'      4: Do not display a progress dialog box.
+	'      8: Give the file a new name in a move, copy, or rename operation if a file with the target name already exists.
+	'     16: Click "Yes to All" in any dialog box that is displayed.
+	'     64: Preserve undo information, if possible.
+	'    128: Perform the operation on files only if a wildcard file name (*.*) is specified.
+	'    256: Display a progress dialog box but do not show the file names.
+	'    512: Do not confirm the creation of a new directory if the operation requires one to be created.
+	'   1024: Do not display a user interface if an error occurs.
+	'   4096: Only operate in the local directory. Don't operate recursively into subdirectories.
+	'   8192: Do not copy connected files as a group. Only copy the specified files.
+	intOptions = 16 + 256
+	objTarget.CopyHere objSource, intOptions
+	Set objSource = Nothing
+	Set objTarget = Nothing
+	Set objShell  = Nothing
+End Sub
+ 
+ 
+ 
+ 
+Function GetFileVersion( myFile )
+	Dim objFSO, strFile
+	GetFileVersion = "0"
+	On Error Resume Next
+	Set objFSO = CreateObject( "Scripting.FileSystemObject" )
+	strFile = objFSO.GetAbsolutePathName( myFile )
+	GetFileVersion = objFSO.GetFileVersion( strFile )
+	If Err Then
+		DebugMessage "Error finding file version for """ & strFile & """:" & vbCrLf & Err.Description
+	End If
+	Set objFSO = Nothing
+	On Error Goto 0
+End Function
+ 
+ 
+ 
+ 
+Function GetInstalledVersion( myProg, myINI )
+	Dim arrDisplay
+	Dim blnSearchPath, blnTryInstLoc, blnUseProdVer
+	Dim colInstances, objExec, objFile, objInstance , objFSO, objMatches, objRE, objWMIService, wshShell
+	Dim strCmdLine, strCmdOutput, strCmdGrep, strDebug, strDisplayName, strExec, strExec2, strExt, strHTAText
+	Dim strLatest, strName, strPath, strPrompt, strRegPath, strRegPath2, strRegVersion, strRegVersion2
+	Dim strSearchPath, strTitle, strTryInstLoc, strUseProdVer, strVersion, strWin32Product
+ 
+	If myProg = "UpdateCheckHTA" Then
+		GetInstalledVersion = UpdateCheck.Version
+		Exit Function
+	End If
+ 
+	Set wshShell = CreateObject( "Wscript.Shell" )
+	Set objFSO   = CreateObject( "Scripting.FileSystemObject" )
+ 
+	' Read values for specified program from UpdateCheck.ini
+	strCmdLine      = ReadINI( myINI, myProg, "CommandLine" )
+	strCmdGrep      = ReadINI( myINI, myProg, "OutputGrep" )
+	strDisplayName  = ReadINI( myINI, myProg, "DisplayName" )
+	strExec         = wshShell.ExpandEnvironmentStrings( ReadINI( myINI, myProg, "Executable" ) )
+	strExec2        = wshShell.ExpandEnvironmentStrings( ReadINI( myINI, myProg, "Executable2" ) )
+	strRegPath      = wshShell.ExpandEnvironmentStrings( ReadINI( myINI, myProg, "RegPath" ) )
+	strRegPath2     = wshShell.ExpandEnvironmentStrings( ReadINI( myINI, myProg, "RegPath2" ) )
+	strRegVersion   = ReadINI( myINI, myProg, "RegVersion" )
+	strRegVersion2  = ReadINI( myINI, myProg, "RegVersion2" )
+	strSearchPath   = ReadINI( myINI, myProg, "SearchPATH" )
+	strTryInstLoc   = ReadINI( myINI, myProg, "TryInstallLocation" )
+	strUseProdVer   = ReadINI( myINI, myProg, "UseProductVersion" )
+	strVersion      = ReadINI( myINI, myProg, "Version" )
+	strWin32Product = ReadINI( myINI, myProg, "Win32Product" )
+	If strVersion = "" Then strVersion = "0"
+	strDebug = "<b>[" & Now & "]</b> INI entry for detection of <b>""" & gvaProgNames.Item( myProg ) & """</b> version:"   & vbCrLf & vbCrLf
+	If myProg = "UpdateCheckINI" Then
+		strDebug = strDebug & "Version = """ & strVersion & """" & vbCrLf
+	Else
+		strDebug = strDebug _
+		         & "CommandLine        = """ & Escape( strCmdLine )       & """" & vbCrLf _
+		         & "DisplayName        = """ & strDisplayName             & """" & vbCrLf _
+		         & "Executable         = """ & strExec                    & """" & vbCrLf _
+		         & "Executable2        = """ & strExec2                   & """" & vbCrLf _
+		         & "OutputGrep         = """ & Escape( strCmdGrep )       & """" & vbCrLf _
+		         & "RegPath            = """ & strRegPath                 & """" & vbCrLf _
+		         & "RegPath2           = """ & strRegPath2                & """" & vbCrLf _
+		         & "RegVersion         = """ & strRegVersion              & """" & vbCrLf _
+		         & "RegVersion2        = """ & strRegVersion2             & """" & vbCrLf _
+		         & "SearchPATH         = """ & DebugBool( strSearchPath ) & """" & vbCrLf _
+		         & "TryInstallLocation = """ & DebugBool( strTryInstLoc ) & """" & vbCrLf _
+		         & "UseProductVersion  = """ & DebugBool( strUseProdVer ) & """" & vbCrLf _
+		         & "Win32Product       = """ & strWin32Product            & """" & vbCrLf
+	End If
+	DebugMessage strDebug
+ 
+	If strVersion = "0" Then
+		If strCmdLine <> "" Then ' Determine the executable version by running it (parent folder must be in the PATH)
+			strVersion = SearchCommandOutput( strCmdLine, strCmdGrep )
+		ElseIf strDisplayName <> "" Then ' Search the registry for matching DisplayNames and return the DisplayVersion
+			strVersion = SearchDisplayName( myProg, strDisplayName )
+		ElseIf strRegVersion <> "" Then
+			strVersion = SearchRegVersion( myProg, strRegVersion, strRegVersion2 )
+		'ElseIf strRegPath <> "" And strExec <> "" Then ' Read the executable's location from the registry
+		ElseIf strRegPath <> "" Then ' Read the executable's location from the registry
+			strVersion = SearchRegPath( myProg, strRegPath, strRegPath2, strExec, strUseProdVer )
+		ElseIf strSearchPath <> "" And strExec <> "" Then ' Find the executable file and determine its version
+			strVersion = SearchPATH( myProg, strExec, strUseProdVer )
+		ElseIf strExec <> "" Then
+			If strUseProdVer = "" Then
+				strVersion = GetFileVersion( strExec )
+				If strVersion = "0" And strExec2 <> "" Then strVersion = GetFileVersion( strExec2 )
+			Else
+				strVersion = GetProductVersion( strExec )
+				If strVersion = "0" And strExec2 <> "" Then strVersion = GetProductVersion( strExec2 )
+			End If
+		ElseIf strWin32Product <> "" Then ' Use WMI to determine the installed version
+			If gvbSkipWMI And gvbDebug Then
+				DebugMessage "Command line switch /SKIPWMI forces us to skip WMI based version detections while debugging."
+			Else
+				strVersion = SearchWMI( myProg, strWin32Product, strTryInstLoc, strExec, strUseProdVer )
+			End If
+		Else ' Invalid combination of parameters
+			strVersion = "ERROR"
+			DebugMessage "Invalid INI entry for " & myProg
+		End If
+	End If
+ 
+	DebugMessage "<b>[" & Now & "]</b> Detected version: " & strVersion
+	strVersion = Trim( Replace( strVersion, "-", "." ) )
+	If strVersion = "" Or strVersion = "0" Or strVersion = "0.0.0.0" Then
+		DebugMessage "<b>Installed version: N/A"
+	Else
+		DebugMessage "<b>Installed version: " & strVersion & "</b>"
+	End If
+ 
+	GetInstalledVersion = strVersion
+End Function
+ 
+ 
+ 
+ 
+Function GetLatestVersion( myProg, myINI )
+	Dim blnDownloadReg, blnIgnoreDots, blnWGetUseIE
+	Dim objFSO, objHTTP, objIE, objLogFile, objMatch, objMatches, objRE
+	Dim strDebug, strDisplayName, strDownloadReg, strHTML, strIgnoreDots, strLogFile, strPattern, strTest, strText, strUserAgent, strVersion, strWGetUseIE
+	Dim urlCheck, urlDownload
+ 
+	' For this HTA, a simpler check suffices
+	If myProg = "UpdateCheckHTA" Then
+		GetLatestVersion = TextFromHTML( URL_LATESTVER_HTA )
+		Exit Function
+	End If
+ 
+'	On Error Resume Next
+ 
+	' Initial return string, in case an error occurs
+	strVersion = "0"
+	strHTML    = ""
+	' Read the required web page URL and regex pattern from the INI file
+	strDisplayName = ReadINI( myINI, myProg, "DisplayName" )
+	strDownloadReg = ReadINI( myINI, myProg, "DownloadRegistered" )
+	If strDownloadReg = "" Then
+		blnDownloadReg = False
+	Else
+		blnDownloadReg = True
+	End If
+	strIgnoreDots = ReadINI( myINI, myProg, "IgnoreDots" )
+	If strIgnoreDots = "" Then
+		blnIgnoreDots = False
+	Else
+		blnIgnoreDots = True
+	End If
+	strPattern   = ReadINI( myINI, myProg, "RegexPattern" )
+	urlDownload  = ReadINI( myINI, myProg, "WebsiteDownload" )
+	urlCheck     = ReadINI( myINI, myProg, "WebsiteVersion" )
+	strWGetUseIE = ReadINI( myINI, myProg, "WGetUseIE" )
+	If strWGetUseIE = "" Then
+		blnWGetUseIE = False
+	Else
+		blnWGetUseIE = True
+	End If
+	DebugMessage "<b>[" & Now & "]</b> INI entry for detection of <em>latest</em> <b>""" & gvaProgNames.Item( myProg ) & """</b> version:"   & vbCrLf & vbCrLf _
+	           & "DownloadRegistered = """ & DebugBool( blnDownloadReg ) & """" & vbCrLf _
+	           & "IgnoreDots         = """ & DebugBool( blnIgnoreDots )  & """" & vbCrLf _
+	           & "RegexPattern       = """ & Escape( strPattern )        & """" & vbCrLf _
+	           & "WebsiteDownload    = """ & urlDownload                 & """" & vbCrLf _
+	           & "WebsiteVersion     = """ & urlCheck                    & """" & vbCrLf _
+	           & "WGetUseIE          = """ & DebugBool( blnWGetUseIE )   & """" & vbCrLf
+	If urlCheck = "" Or strPattern = "" Then Exit Function
+	If blnWGetUseIE Then
+		DebugMessage "WGetUseIE = """ & strWGetUseIE & """ (" & DebugBool( blnWGetUseIE ) & "): using Internet Explorer to read web page"
+ 
+		On Error Resume Next
+ 
+		' Use Internet Explorer to read the text from the specified web page
+		Set objIE = CreateObject( "InternetExplorer.Application" )
+		objIE.Visible = False
+		objIE.Navigate2 urlCheck
+		Do While objIE.Busy
+			strTest = ReadINI( myINI, myProg, "RegexPattern" ) ' Anything that takes a while
+		Loop
+		strHTML = objIE.Document.body.innerHTML
+		If Err Then
+			strDebug = "Error using Internet Explorer to retrieve web page """ & urlCheck & """:" & vbCrLf & Err.Description & vbCrLf & Err.Source
+			strDebug = strDebug & vbCrLf & "Retrieved " & Len( strHTML ) & " bytes."
+			strDebug = strDebug & vbCrLf & "Returned status: " & objIE.StatusText
+			DebugMessage strDebug
+		End If
+ 
+		On Error Goto 0
+ 
+		objIE.Quit
+		Set objIE = Nothing
+	Else
+		DebugMessage "WGetUseIE = """ & strWGetUseIE & """ (" & DebugBool( blnWGetUseIE ) & "): using WinHTTP to read web page"
+ 
+		On Error Resume Next
+ 
+		' Use WinHTTP to read the text from the specified web page
+		Set objHTTP = CreateObject( "WinHttp.WinHttpRequest.5.1" )
+		objHTTP.Open "GET", urlCheck, False
+		strUserAgent = "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:30.0) Gecko/20100101 Firefox/30.0"
+		objHTTP.SetRequestHeader "UserAgent", strUserAgent
+		objHTTP.SetTimeouts 2000, 30000, 15000, 30000
+		objHTTP.Send
+		If objHTTP.Status = 200 And Err.Number = 0 Then
+			strHTML = objHTTP.ResponseText
+		Else
+			DebugMessage "Error searching for latest version of """ & myProg & """: " & objHTTP.StatusText & " (" & objHTTP.Status & ")"
+		End If
+		Set objHTTP = Nothing
+ 
+		On Error Goto 0
+	End If
+ 
+	If Len( strHTML ) = 0 Then
+		DebugMessage "Error reading web page"
+	Else
+		If gvbDebug And Not gvbDontSaveWebPages Then
+			Set objFSO = CreateObject( "Scripting.FileSystemObject" )
+			strLogFile = "UpdateCheck.GetLatestVersion." & myProg & "." & TimeStamp( ) & ".html"
+			strLogFile = objFSO.BuildPath( Self.location.pathname & ".\..", strLogFile )
+			strLogFile = objFSO.GetAbsolutePathName( strLogFile )
+			On Error Resume Next
+			Set objLogFile = objFSO.OpenTextFile( strLogFile, ForWriting, True, TristateFalse )
+			objLogFile.Write strHTML
+			objLogFile.Close
+			If Err Then
+				DebugMessage "Error saving web page for version check as """ & strLogFile & """:" & vbCrLf & Err.Description
+			Else
+				DebugMessage "Saved web page for version check as """ & strLogFile & """"
+			End If
+			On Error Goto 0
+			Set objLogFile = Nothing
+			Set objFSO     = Nothing
+		End If
+	End If
+ 
+	Set objRE = New RegExp
+	objRE.Pattern    = strPattern
+	objRE.IgnoreCase = False
+	objRE.Global     = True
+	Set objMatches = objRE.Execute( strHTML )
+	strDebug = "Using the following regex pattern to search for the version number:" & vbCrLf & Escape( strPattern ) & vbCrLf
+	If objMatches.Count = 0 Then
+		strDebug = strDebug & "No match found."
+	ElseIf objMatches.Count = 1 Then
+		strDebug = strDebug & "1 match found: " & Escape( objMatches.Item(0) )
+	Else
+		strDebug = strDebug & objMatches.Count & " matches found:"
+		For Each objMatch In objMatches
+			strDebug = strDebug & vbCrLf & Escape( objMatch.Value )
+		Next
+	End If
+	If objMatches.Count > 0 Then
+		For Each objMatch In objMatches.Item(0).Submatches
+			strDebug = strDebug & vbCrLf & "Submatch: " & Escape( objMatch )
+			strVersion = objMatch
+		Next
+	End If
+	DebugMessage strDebug
+	' Remove leading zeros
+	strVersion = Replace( strVersion, "(", "" )
+	strVersion = Replace( strVersion, ")", "" )
+	strVersion = Replace( strVersion, " ", "." )
+	strVersion = Replace( strVersion, "-", "." )
+	Set objMatch = Nothing
+	Set objRE    = Nothing
+ 
+	On Error Goto 0
+ 
+	' Return the result
+	GetLatestVersion = strVersion
+End Function
+ 
+ 
+ 
+ 
+Sub GetPID( )
+	Dim colInstances, objInstance, objWMIService
+	gviPID = 0
+	On Error Resume Next
+	Set objWMIService = GetObject( "winmgmts://./root/CIMV2" )
+	Set colInstances = objWMIService.ExecQuery( "SELECT * FROM Win32_Process WHERE Name='mshta.exe' AND CommandLine LIKE '%" & Replace( Self.location.pathname, "\", "\\" ) & "%'" )
+	If colInstances.Count <> 1 Then Exit Sub
+	For Each objInstance In colInstances
+		gviPID = objInstance.ProcessId
+	Next
+	On Error Goto 0
+End Sub
+ 
+ 
+ 
+ 
+Function GetProductVersion( myFile )
+	' Based on code by Maputi on StackOverflow.com:
+	' http://stackoverflow.com/questions/2976734/how-to-retrieve-a-files-product-version-in-vbscript
+	Dim arrTranslations
+	Dim i
+	Dim objFolder, objFolderItem, objFSO, objShell
+	Dim strFileName, strPropertyName, strParentFolder, strVersion
+ 
+	' Note that property names are language dependent, so you may have to add the lower case property name for your own language
+	Set arrTranslations = CreateObject( "System.Collections.ArrayList" )
+	arrTranslations.Add "product version" ' English
+	arrTranslations.Add "productversie"   ' Dutch
+ 
+	strVersion = "0"
+	Set objFSO = CreateObject( "Scripting.FileSystemObject" )
+	If objFSO.FileExists( myFile ) Then
+		strFileName       = objFSO.GetFileName( myFile )
+		strParentFolder   = objFSO.GetParentFolderName( myFile )
+		Set objShell      = CreateObject( "Shell.Application" )
+		Set objFolder     = objShell.Namespace( strParentFolder )
+		Set objFolderItem = objFolder.ParseName( strFileName )
+		For i = 0 To 300
+			strPropertyName = objFolder.GetDetailsOf( objFolder.Items, i )
+			If arrTranslations.Contains( LCase( strPropertyName ) ) Then
+				strVersion = objFolder.GetDetailsOf( objFolderItem, i )
+				DebugMessage "Product version of """ & strFileName & """ is """ & strVersion & """ (file property """ & strPropertyName & """, index " & i & ")"
+				Exit For
+			End If
+		Next
+		Set objFolderItem = Nothing
+		Set objFolder     = Nothing
+		Set objShell      = Nothing
+		If strVersion = 0 Then DebugMessage "Product version of """ & strFileName & """ not found"
+	Else
+		DebugMessage "File not found:" & vbCrLf & """" & strFileName & """"
+	End If
+	Set objFSO          = Nothing
+	Set arrTranslations = Nothing
+ 
+	GetProductVersion = strVersion
+End Function
+ 
+ 
+ 
+ 
+Sub Help( )
+	Dim wshShell
+	Set wshShell = CreateObject( "Wscript.Shell" )
+	wshShell.Run "http://www.robvanderwoude.com/updatecheckhelp.php", 3, False
+	Set wshShell = Nothing
+End Sub
+ 
+ 
+ 
+ 
+Sub Initialize( )
+	Dim arrSize, blnConfigFile, objAnchor, objConfigFile, objFSO, objSysInfo, strConfigText, strDebug, strSize, wshShell
+	Set wshShell = CreateObject( "Wscript.Shell" )
+	blnConfigFile  = False
+	gvsCommandLine = UpdateCheck.CommandLine
+	Set objSysInfo = CreateObject( "WinNTSystemInfo" )
+	gvsComputerName = objSysInfo.ComputerName
+	Set objSysInfo = Nothing
+	' File names and locations
+	Set objFSO = CreateObject( "Scripting.FileSystemObject" )
+	With objFSO
+		gvsCurDir     = .GetParentFolderName( Self.location.pathname )
+		gvsZIPFile    = .BuildPath( gvsCurDir, "updatecheck.zip" )
+		gvsINIFile    = .BuildPath( gvsCurDir, "UpdateCheck.ini" )
+		gvsConfigFile = .BuildPath( gvsCurDir, "UpdateCheck.cfg" )
+		' Download INI from the web if local INI file not found
+		If Not .FileExists( gvsINIFile ) Then
+			DebugMessage "Downloading default INI file from the website . . ."
+			Download URL_WEB_INI, gvsINIFile
+		End If
+		' Add configuration file parameters to command line
+		If .FileExists( gvsConfigFile ) Then
+			blnConfigFile = True
+			Set objConfigFile = .OpenTextFile( gvsConfigFile, ForReading, False, TristateUseDefault )
+			strConfigText = objConfigFile.ReadAll( )
+			objConfigFile.Close
+			Set objConfigFile = Nothing
+			strConfigText = Replace( strConfigText, vbCrLf, " " )
+			strConfigText = Replace( strConfigText, vbCr,   " " )
+			strConfigText = Replace( strConfigText, vbLf,   " " )
+			strConfigText = Replace( strConfigText, vbTab,  " " )
+			strConfigText = Replace( strConfigText, "   ",  " " )
+			strConfigText = Replace( strConfigText, "  ",   " " )
+			gvsCommandLine = Trim( gvsCommandLine ) & " " & Trim( strConfigText )
+		End If
+	End With
+	Set objFSO = Nothing
+	gviKeyLength    =   0
+	gviMinHeight    = 600
+	gviMinWidth     = 800
+	gviWindowHeight = 850
+	gviWindowWidth  = 900
+	gvbBW               = CBool( InStr( UCase( gvsCommandLine ), "/BW" ) )
+	gvbDebug            = CBool( InStr( UCase( gvsCommandLine ), "/DEBUG" ) )
+	gvbDontSaveWebPages = CBool( InStr( UCase( gvsCommandLine ), "/DSWP" ) )
+	gvbForceCheck       = CBool( InStr( UCase( gvsCommandLine ), "/FORCE" ) )
+	gvbQuiet            = CBool( InStr( UCase( gvsCommandLine ), "/QUIET" ) )
+	gvbSkipDowngrades   = CBool( InStr( UCase( gvsCommandLine ), "/SKIPDOWNGRADE" ) )
+	gvbSkipNotInstalled = CBool( InStr( UCase( gvsCommandLine ), "/SKIPNOTINSTALLED" ) )
+	gvbSkipWMI          = CBool( InStr( UCase( gvsCommandLine ), "/SKIPWMI" ) )
+	gvbChanged            = False
+	gvbCustomEntries      = False
+	gvbLatestListComplete = False
+	gvbUpdateProgList     = False
+	gvbUpdatesFound       = False
+ 
+'	On Error Resume Next
+ 
+	' Get the currently installed INI file version
+	gvsINIVersion = ReadINI( gvsINIFile, "UpdateCheckINI", "Version" )
+	If gvsINIVersion = "" Then gvsINIVersion = "1.20"
+ 
+	On Error Goto 0
+ 
+	' Table to contain program list and results
+	Set gvoTable = document.getElementById( "AllProgTable" )
+	document.title = UpdateCheck.ApplicationName & ", Version " & UpdateCheck.Version
+	CopyrightsNotice.innerHTML = UpdateCheck.ApplicationName & ",  Version " & UpdateCheck.Version & "<br>&copy; 2014 Rob van der Woude"
+	' Set window dimensions
+	If InStr( UCase( gvsCommandLine ), "/SIZE:" ) Then
+		strSize = UCase( Mid( gvsCommandLine, InStr( UCase( gvsCommandLine ), "/SIZE:" ) + 6 ) )
+		If InStr( strSize, " " ) Then
+			strSize = Left( strSize, InStr( strSize, " " ) - 1 )
+		End If
+		If InStr( strSize, "X" ) Then
+			arrSize = Split( strSize, "X" )
+			If UBound( arrSize ) = 1 Then
+				If IsNumeric( arrSize(0) ) And IsNumeric( arrSize(1) ) Then
+					gviWindowHeight = Max( CInt( arrSize(1) ), gviMinHeight )
+					gviWindowWidth  = Max( CInt( arrSize(0) ), gviMinWidth  )
+				End If
+			End If
+		End If
+	End If
+	' SortedList objects to contain program properties
+	Set gvaCustomEntries  = CreateObject( "System.Collections.Sortedlist" )
+	Set gvaDownloadReg    = CreateObject( "System.Collections.Sortedlist" )
+	Set gvaHideProg       = CreateObject( "System.Collections.Sortedlist" )
+	Set gvaIgnoreDots     = CreateObject( "System.Collections.Sortedlist" )
+	Set gvaLatestVersions = CreateObject( "System.Collections.Sortedlist" )
+	Set gvaProgNames      = CreateObject( "System.Collections.Sortedlist" )
+	Set gvaProgVersions   = CreateObject( "System.Collections.Sortedlist" )
+	strDebug = UpdateCheck.Applicationname & ",  Version " & UpdateCheck.Version & vbCrLf & vbCrLf _
+	         & "Logging started "          & Now        & vbCrLf & vbCrLf _
+	         & "<h1>* * * PART I: INITIALIZATION * * *</h1>"     & vbCrLf & vbCrLf _
+	         & "INI file: """              & gvsINIFile & """"   & vbCrLf & vbCrLf _
+	         & "Registered INI version: "  & gvsINIVersion       & vbCrLf & vbCrLf _
+	         & "Command line           : " & UpdateCheck.CommandLine    & vbCrLf _
+	         & "Config file found      : " & DebugBool( blnConfigFile ) & vbCrLf
+	If blnConfigFile Then strDebug = strDebug & "Config file content    : """ & Trim( strConfigText ) & """" & vbCrLf
+	strDebug = strDebug _
+	         & "Resulting command line : " & gvsCommandLine      & vbCrLf & vbCrLf _
+	         & "Debug Mode         = " & DebugBool( gvbDebug )            & vbCrLf _
+	         & "Show all downloads = " & DebugBool( gvbForceCheck )       & vbCrLf _
+	         & "Quiet mode         = " & DebugBool( gvbQuiet )            & vbCrLf _
+	         & "Skip downgrades    = " & DebugBool( gvbSkipDowngrades )   & vbCrLf _
+	         & "Skip not installed = " & DebugBool( gvbSkipNotInstalled ) & vbCrLf _
+	         & "Skip WMI searches  = " & DebugBool( gvbSkipWMI )          & vbCrLf _
+	         & "Black and White    = " & DebugBool( gvbBW )               & vbCrLf _
+	         & "Window size        = " & gviWindowWidth & " x " & gviWindowHeight
+	DebugMessage strDebug
+	' Hive string to constant conversions use a dictionary object
+	Set gvaHives = CreateObject( "Scripting.Dictionary" )
+	gvaHives.Item( "HKEY_CLASSES_ROOT" )   = HKEY_CLASSES_ROOT
+	gvaHives.Item( "HKEY_CURRENT_USER" )   = HKEY_CURRENT_USER
+	gvaHives.Item( "HKEY_LOCAL_MACHINE" )  = HKEY_LOCAL_MACHINE
+	gvaHives.Item( "HKEY_USERS" )          = HKEY_USERS
+	gvaHives.Item( "HKEY_CURRENT_CONFIG" ) = HKEY_CURRENT_CONFIG
+	gvaHives.Item( "HKEY_DYN_DATA" )       = HKEY_DYN_DATA
+	Set wshShell = Nothing
+	If gvbBW Then
+		document.body.style.backgroundColor = "white"
+		document.body.style.color           = "black"
+		document.body.style.filter          = "none"
+		For Each objAnchor In document.getElementsByTagName( "a" )
+			objAnchor.style.color = "blue"
+		Next
+	End If
+End Sub
+ 
+ 
+ 
+ 
+Function IsAdmin( showMessage )
+	' Based on code by Denis St-Pierre
+	Dim intbuttons, intRC
+	Dim wshShell
+	Dim strMsg, strTitle
+	IsAdmin = False
+	Set wshShell = CreateObject( "WScript.Shell" )
+ 
+'	On Error Resume Next
+ 
+	intRC = wshShell.Run( "CMD /C OPENFILES > NUL 2>&1", 7, True )
+	If Err Then intRC = 1
+ 
+	On Error Goto 0
+ 
+	Set wshShell = Nothing
+	If intRC = 0 Then
+		IsAdmin = True
+	Else
+		If showMessage Then
+			intButtons = vbOKOnly + vbInformation + vbApplicationModal
+			strMsg     = "This HTA requires elevated privileges." & vbCrLf & vbCrLf _
+			           & "Please run this HTA as administrator."  & vbCrLf & vbCrLf & vbCrLf & vbCrLf _
+			           & "On some 64-bit systems, you may still get this message, whether running with elevated privileges or not." & vbCrLf & vbCrLf _
+			           & "Usually this is caused by HTAs being incorrectly associated with the 32-bit MSHTA version (%windir%\SysWOW64\mshta.exe)." & vbCrLf & vbCrLf _
+			           & "In that case, add the path to the proper (64-bit) MSHTA to this HTA's command line:" & vbCrLf & vbCrLf & vbCrLf _
+			           & """%windir%\system32\mshta.exe"" """ & Self.location.pathname & """"
+			strTitle   = "Elevated privileges required"
+			MsgBox strMsg, intButtons, strTitle
+		End If
+	End If
+End Function
+ 
+ 
+ 
+ 
+Function IsNullOrEmpty( myObject )
+	If IsObject( myObject ) Then
+		IsNullOrEmpty = False
+	ElseIf IsNull( myObject ) Then
+		IsNullOrEmpty = True
+	ElseIf Trim( myObject ) = "" Then
+		IsNullOrEmpty = True
+	Else
+		IsNullOrEmpty = False
+	End If
+End Function
+ 
+ 
+ 
+ 
+Sub ListInstalledVersions( myINI )
+	Dim i, strKey, strVal
+	gvaLatestVersions.Clear
+	gvaProgVersions.Clear
+	For i = 0 To gvaProgNames.Count - 1
+		strKey = gvaProgNames.GetKey( i )
+		strVal = GetInstalledVersion( strKey, myINI )
+		If strVal = "0" And gvbSkipNotInstalled Then
+			gvaHideProg.Item( strKey ) = 1
+		Else
+			gvaProgVersions.Item( strKey ) = strVal
+		End If
+	Next
+End Sub
+ 
+ 
+ 
+ 
+Sub ListLatestVersions( myINI )
+	Dim i, intButtons, strKey, strMsg
+	clearTimeout gvtTimer
+	gvaLatestVersions.Clear
+	For i = 0 To gvaProgNames.Count - 1
+		strKey = gvaProgNames.GetKey( i )
+		gvaLatestVersions.Item( strKey ) = GetLatestVersion( strKey, myINI )
+	Next
+	gvbLatestListComplete = True
+	ShowProgs
+	DebugMessage "Logging ended " & Now
+	ButtonUpdateProgList.disabled   = False
+	ButtonRescanPrograms.disabled   = False
+	ButtonShowAllDownloads.disabled = False
+	If gvbQuiet Then
+		If gvbUpdatesFound Then
+			strMsg = "Updates are available for download."
+			intButtons = vbOKOnly + vbInformation + vbSystemModal
+			If gviPID = 0 Then
+				strMsg = strMsg & vbCrLf & vbCrLf & "Restore the UpdateCheck window to view the details."
+				MsgBox strMsg, intButtons, "UpdateCheck results"
+			Else
+				MsgBox strMsg, intButtons, "UpdateCheck results"
+				Maximize
+			End If
+		Else
+			Self.window.close
+			Exit Sub
+		End If
+	End If
+End Sub
+ 
+ 
+ 
+ 
+Sub ListProgs( myINI )
+	Dim objFSO, objFile, objMatches, objMatch, objRE
+	Dim strAllINIText, strCustomEntry, strDebug, strDownloadReg, strHideProg, strIgnoreDots, strProgID, strProgName
+	Const ForReading = 1
+	strAllINIText = ""
+	Set objFSO  = CreateObject( "Scripting.FileSystemObject" )
+	strDebug = "<h1>* * * PART II: LOCAL INVENTORY * * *</h1>"                 & vbCrLf & vbCrLf _
+	         & "Looking for INI file """ & objFSO.GetAbsolutePathName( myINI ) &  """"  & vbCrLf
+	If objFSO.FileExists( myINI ) Then
+'		On Error Resume Next
+ 
+		Set objFile = objFSO.OpenTextFile( myINI, ForReading, False )
+		If Err Then
+			strDebug = strDebug & "Unable to open INI file" & vbCrLf
+			MsgBox "Unable to open file """ & objFSO.GetAbsolutePathName( myINI ) & """", vbOKOnly + vbExclamation + vbApplicationModal, "File read error"
+		Else
+			strAllINIText = objFile.ReadAll( )
+			objFile.Close
+			strDebug = strDebug & "OK (" & Len( strAllINIText ) & " bytes read)" & vbCrLf
+		End If
+ 
+		On Error Goto 0
+ 
+		Set objFile = Nothing
+		Set objFSO  = Nothing
+	Else
+		strDebug = strDebug & "Unable to open INI file" & vbCrLf
+		DebugMessage strDebug
+		MsgBox "Unable to open file """ & objFSO.GetAbsolutePathName( myINI ) & """", vbOKOnly + vbExclamation + vbApplicationModal, "File not found"
+		Set objFSO = Nothing
+		Exit Sub
+	End If
+	DebugMessage strDebug
+	Set objRE = New RegExp
+	objRE.Global     = True
+	objRE.IgnoreCase = False
+	objRE.Pattern    = "(?:^|\n|\r)\[([^\n\r\]]+)\](?:\n|\r|$)"
+	strDebug = "Listing Program IDs using the regex pattern """ & Escape( objRE.Pattern ) & """" & vbCrLf
+	Set objMatches = objRE.Execute( strAllINIText )
+	If objMatches.Count = 0 Then
+		strDebug = strDebug & "No matches"
+	Else
+		strDebug = strDebug & objMatches.Count & " match(es)"
+		gvaHideProg.Clear( )
+		gvaLatestVersions.Clear( )
+		gvaProgNames.Clear( )
+		gvaProgVersions.Clear( )
+		gvaDownloadReg.Item( "UpdateCheckHTA" ) = ""
+		gvaHideProg.Item( "UpdateCheckHTA" )    = ""
+		gvaIgnoreDots.Item( "UpdateCheckHTA" )  = ""
+		gvaProgNames.Item( "UpdateCheckHTA" )   = "UpdateCheck (this HTA)"
+		For Each objMatch In objMatches
+			strProgID      = objMatch.Submatches(0)
+			strCustomEntry = ReadINI( myINI, strProgID, "CustomEntry" )
+			strDownloadReg = ReadINI( myINI, strProgID, "DownloadRegistered" )
+			strHideProg    = ReadINI( myINI, strProgID, "HideProg" )
+			strIgnoreDots  = ReadINI( myINI, strProgID, "IgnoreDots" )
+			strProgName    = ReadINI( myINI, strProgID, "ProgName" )
+			If strCustomEntry <> "" Then gvbCustomEntries = True
+			gvaCustomEntries.Item( strProgID ) = strCustomEntry
+			gvaDownloadReg.Item( strProgID )   = strDownloadReg
+			gvaHideProg.Item( strProgID )      = strHideProg
+			gvaIgnoreDots.Item( strProgID )    = strIgnoreDots
+			gvaProgNames.Item( strProgID )     = strProgName
+		Next
+		If Not gvaProgNames.ContainsKey( "UpdateCheckINI" ) Then
+			gvaDownloadReg.Item( "UpdateCheckINI" ) = ""
+			gvaHideProg.Item( "UpdateCheckINI" )    = ""
+			gvaIgnoreDots.Item( "UpdateCheckINI" )  = ""
+			gvaProgNames.Item( "UpdateCheckINI" )   = "UpdateCheck (Program List)"
+			strDebug = strDebug & vbCrLf & vbCrLf & "Adding missing entry for UpdateCheck Program List . . ."
+		End If
+	End If
+	Set objMatches = Nothing
+	Set objRE      = Nothing
+	strDebug = strDebug & vbCrLf & vbCrLf & DebugProgList( )
+	DebugMessage strDebug
+End Sub
+ 
+ 
+ 
+ 
+Function Max( num1, num2 )
+	If num1 > num2 Then
+		Max = num1
+	Else
+		Max = num2
+	End If
+End Function
+ 
+ 
+ 
+ 
+Sub Maximize( )
+	' Based on code by Alan Kaplan
+	' http://www.akaplan.com/blog/2010/06/how-to-maximize-a-minimized-hta-file/
+	Dim wshShell
+	If gviPID > 0 Then
+		Set wshShell = CreateObject( "Wscript.Shell" )
+		wshShell.AppActivate gviPID
+		wshShell.SendKeys  "+(%" & Space(1) & "r)"
+	End If
+	Set wshShell = Nothing
+End Sub
+ 
+ 
+ 
+ 
+Function Min( num1, num2 )
+	If num1 < num2 Then
+		Min = num1
+	Else
+		Min = num2
+	End If
+End Function
+ 
+ 
+ 
+ 
+Function Pad( myString, myLength )
+	Dim strPadded
+	strPadded = myString & Space( myLength )
+	strPadded = Left( strPadded, myLength )
+	Pad = strPadded
+End Function
+ 
+ 
+ 
+ 
+Function ReadINI( myINI, mySection, myKey )
+	Dim objFSO, objFile, objMatches, objRE
+	Dim strAllINIText, strPattern, strValue
+	ReadINI  = ""
+	strValue = ""
+	Set objFSO  = CreateObject( "Scripting.FileSystemObject" )
+	Set objFile = objFSO.OpenTextFile( myINI, ForReading, False )
+	strAllINIText = objFile.ReadAll( )
+	objFile.Close
+	Set objFile = Nothing
+	Set objFSO  = Nothing
+	Set objRE   = New RegExp
+	objRE.Global     = True
+	objRE.IgnoreCase = True
+	objRE.Pattern    = "\[" & mySection & "\]"
+	If objRE.Test( strAllINIText ) Then
+		objRE.Pattern    = "\[" & mySection & "\][\n\r]+(?:[^\n\r=]+=[^\n\r]*[\n\r]+)*?" & myKey & "=([^\n\r]*)(?:\n|\r|$)"
+		Set objMatches = objRE.Execute( strAllINIText )
+		If objMatches.Count > 0 Then
+			strValue = Strip( objMatches.Item(0).SubMatches(0) )
+		End If
+		Set objMatches = Nothing
+		Set objRE      = Nothing
+	End If
+	ReadINI = strValue
+End Function
+ 
+ 
+ 
+ 
+Function ReadRegKeysNumeric( myRegPath )
+	' myRegPath specified as "{HIVE}\{REGPATH}\*" (* = literal asterisk)
+	' e.g. "HKEY_LOCAL_MACHINE\SOFTWARE\GPL Ghostscript\*"
+	Dim arrRegPath, arrSubKeys, arrTest1, arrTest2
+	Dim i, j
+	Dim objRE, objReg
+	Dim strHive, strNum, strRegPath
+ 
+	ReadRegKeysNumeric = 0
+ 
+	' Split the registry path in a hive part and the rest, and check if that succeeded
+	arrRegPath = Split( myRegPath, "\", 2 )
+	If Not IsArray( arrRegPath ) Then Exit Function
+    If UBound( arrRegPath ) <> 1 Then Exit Function
+	Set objRE = New RegExp
+	objRE.Global  = False
+	objRE.Pattern = "\\\*$"
+	strRegPath = objRE.Replace( arrRegPath(1), "" )
+	' Convert the hive string to a hive number
+	strHive = gvaHives.Item( arrRegPath(0) )
+	' Create a WMI registry object, or abort on failure
+ 
+'	On Error Resume Next
+ 
+	Set objReg = GetObject( "winmgmts:{impersonationLevel=impersonate}!//./root/default:StdRegProv" )
+	If Err Then
+		On Error Goto 0
+		Exit Function
+	End If
+ 
+	' List all subkeys, result is stored in arrSubKeys array
+	objReg.EnumKey strHive, strRegPath, arrSubKeys
+	Set objReg = Nothing
+	If Err Then
+		On Error Goto 0
+		Exit Function
+	End If
+ 
+	On Error Goto 0
+ 
+	If Not IsArray( arrSubKeys ) Then Exit Function
+	If UBound( arrSubKeys ) < 0  Then Exit Function
+	Sort arrSubKeys
+	objRE.Pattern = "^\d+(\.\d+)*$"
+	strNum = "0.0.0.0"
+	For i = 0 To UBound( arrSubKeys )
+		If objRE.Test( arrSubKeys(i) ) Then
+			arrTest1 = Split( arrSubKeys(i), "." )
+			arrTest2 = Split( strNum, "." )
+			For j = 0 To Min( UBound( arrTest1) , UBound( arrTest2 ) )
+				If arrTest1(j) > arrTest2(j) Then
+					strNum = arrSubKeys(i)
+					Exit For
+				ElseIf arrTest1(j) < arrTest2(j) Then
+					Exit For
+				End If
+			Next
+		End If
+	Next
+	ReadRegKeysNumeric = strNum
+End Function
+ 
+ 
+ 
+ 
+Function ReadRegKeysWithNum( myRegPath )
+	' myRegPath specified as "{HIVE}\{REGPATH}\{KEY_CONTAINING_ASTERISK}[\{OPTIONALCHILDPATH}]"
+	' e.g. "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Opera *\DisplayVersion"
+	Dim arrRegPath, arrSubKeys, arrTest1, arrTest2
+	Dim i, j
+	Dim objMatches, objRE, objReg, wshShell
+	Dim strChildPath, strHive, strKey, strKeyNum, strNum, strRegKey, strRegPath, strSearchKey, strTest
+ 
+	ReadRegKeysWithNum = 0
+ 
+	' Split the registry path in a hive part and the rest, and check if that succeeded
+	arrRegPath = Split( myRegPath, "\", 2 )
+	If Not IsArray( arrRegPath ) Then Exit Function
+    If UBound( arrRegPath ) <> 1 Then Exit Function
+	' Convert the hive string to a hive number
+	strHive = gvaHives.Item( arrRegPath(0) )
+	' Create a WMI registry object, or abort on failure
+ 
+	On Error Resume Next
+ 
+	Set objReg = GetObject( "winmgmts:{impersonationLevel=impersonate}!//./root/default:StdRegProv" )
+	If Err Then
+		DebugMessage "Error connecting to the registry:" & vbCrLf & Err.Description
+		On Error Goto 0
+		Exit Function
+	End If
+ 
+	' Determine the regex pattern required, based on the location of the * in the specified Registry path
+	Set objRE = New RegExp
+	objRE.Global = False
+	If Right( arrRegPath(1), 2 ) = "\*" Then
+		strRegPath   = Left( arrRegPath(1), 1, Len( arrRegPath(1) ) - 2 )
+		strChildPath = ""
+	Else
+		'strRegPath = Replace( arrRegPath(1), "*", "(\d+(:?\.\d+)*)" )
+		strRegPath = arrRegPath(1)
+		Set objRE = New RegExp
+		objRE.Global = False
+		objRE.Pattern = "^((?:[^\*\\]*\\)*)([^\\]*\*[^\\]*)((?:\\[^\*\\]*)*)$"
+		If objRE.Test( strRegPath ) Then
+			Set objMatches = objRE.Execute( strRegPath )
+			strRegPath   = objMatches.Item(0).Submatches.Item(0)
+			strKey       = objMatches.Item(0).Submatches.Item(1)
+			strChildPath = objMatches.Item(0).Submatches.Item(2)
+		End If
+		If Right( strRegPath, 1 ) = "\" Then
+			strRegPath   = Left( strRegPath, Len( strRegPath ) - 1 )
+		End If
+	End If
+	' List all subkeys, result is stored in arrSubKeys array
+	objReg.EnumKey strHive, strRegPath, arrSubKeys
+	Set objReg = Nothing
+	If Err Then
+		DebugMessage "Error enumerating registry subkeys for """ & myRegPath & """:" & vbCrLf & Err.Description
+		On Error Goto 0
+		Exit Function
+	End If
+	Sort arrSubKeys
+	' Get the match with the highest version
+	strKey = Replace( strKey, ".", "\." )
+	strKey = Replace( strKey, "(", "\(" )
+	strKey = Replace( strKey, ")", "\)" )
+	strKey = Replace( strKey, "+", "+)" )
+	strKey = Replace( strKey, "*", "(\d+(?:\.\d+)*)" )
+	objRE.Pattern = strKey
+	strTest = "0.0.0.0"
+	For i = 0 To UBound( arrSubKeys )
+		If objRE.Test( arrSubKeys(i) ) Then
+			Set objMatches = objRE.Execute( arrSubKeys(i) )
+			strTest = CompareVersions( strTest, objMatches.Item(0).Submatches.Item(0) )
+			Set objMatches = Nothing
+		End If
+	Next
+	strKey     = Replace( strKey, "(\d+(?:\.\d+)*)", strTest )
+	strRegPath = arrRegPath(0) & "\" & strRegPath & "\" & strKey & strChildPath
+	Set wshShell = CreateObject( "Wscript.Shell" )
+ 
+	On Error Resume Next
+ 
+	strNum = wshShell.RegRead( strRegPath )
+	If Err Then
+		strNum = strTest
+		DebugMessage "Error reading RegPath """ & strRegPath & """:" & vbCrLf & Err.Description
+	End If
+ 
+	On Error Goto 0
+ 
+	Set wshShell = Nothing
+	Set objRE = Nothing
+	ReadRegKeysWithNum = strNum
+End Function
+ 
+ 
+ 
+ 
+Sub RescanPrograms( )
+	Self.location.reload
+End Sub
+ 
+ 
+ 
+ 
+Sub SaveChanges( )
+	Dim i, intAnswer, intButtons, intPrograms
+	Dim objFSO, objWriteINI, wshShell
+	Dim strCommandLine, strCustomEntry, strDisplayName, strDownloadReg, strExecutable, strExecutable2, strHideProg, strIgnoreDots
+	Dim strINIText, strMsgText, strOutputGrep, strProgID, strProgName, strPrompt, strReadINI, strRegexPattern, strRegPath, strRegPath2
+	Dim strRegVersion, strRegVersion2, strSearchPath, strTitle, strTryInstLoc, strUseProdVer, strVersion, strWebsiteDownload, strWebsiteVersion, strWGetUseIE, strWin32Product
+	Backup gvsINIFile, gvsINIFile & "." & gvsINIVersion & ".backup." & TimeStamp( )
+	If gvbUpdateProgList Then
+		strReadINI = URL_WEB_INI
+	Else
+		strReadINI = gvsINIFile
+	End If
+	DebugMessage "Read INI file """ & strReadINI & """"
+	ListProgs strReadINI
+	strINIText  = ""
+	strMsgText  = ""
+	intPrograms = 0
+	For i = 0 To gvaProgNames.Count - 1
+		strProgID = gvaProgNames.GetKey(i)
+		If strProgID = "UpdateCheck" Then
+			' Do nothing
+		ElseIf strProgID = "UpdateCheckINI" Then
+			strProgName        = gvaProgNames.Item( strProgID )
+			strVersion         = ReadINI( strReadINI, strProgID, "Version" )
+			strWebsiteDownload = ReadINI( strReadINI, strProgID, "WebsiteDownload" )
+			strWebsiteVersion  = ReadINI( strReadINI, strProgID, "WebsiteVersion" )
+			strINIText = strINIText & "[" & strProgID & "]" & vbCrLf
+			strINIText = strINIText & "ProgName="     & strProgName & vbCrLf
+			strINIText = strINIText & "Version="      & strVersion & vbCrLf
+			strINIText = strINIText & "WebsiteDownload=" & strWebsiteDownload & vbCrLf
+			strINIText = strINIText & "WebsiteVersion="  & strWebsiteVersion  & vbCrLf& vbCrLf
+		Else
+			DebugMessage "CheckBox_" & strProgID & " checked: " & document.getElementById( "CheckBox_" & strProgID ).checked
+			strProgName = gvaProgNames.Item( strProgID )
+			If document.getElementById( "CheckBox_" & strProgID ).checked Then
+				strCustomEntry     = gvaCustomEntries.Item( strProgID )
+				strDownloadReg     = gvaDownloadReg.Item( strProgID )
+				strHideProg        = gvaHideProg.Item( strProgID )
+				strIgnoreDots      = gvaIgnoreDots.Item( strProgID )
+				strCommandLine     = ReadINI( strReadINI, strProgID, "CommandLine" )
+				strDisplayName     = ReadINI( strReadINI, strProgID, "DisplayName" )
+				strExecutable      = ReadINI( strReadINI, strProgID, "Executable" )
+				strExecutable2     = ReadINI( strReadINI, strProgID, "Executable2" )
+				strOutputGrep      = ReadINI( strReadINI, strProgID, "OutputGrep" )
+				strRegexPattern    = ReadINI( strReadINI, strProgID, "RegexPattern" )
+				strRegPath         = ReadINI( strReadINI, strProgID, "RegPath" )
+				strRegPath2        = ReadINI( strReadINI, strProgID, "Regpath2" )
+				strRegVersion      = ReadINI( strReadINI, strProgID, "RegVersion" )
+				strRegVersion2     = ReadINI( strReadINI, strProgID, "RegVersion2" )
+				strSearchPath      = ReadINI( strReadINI, strProgID, "SearchPATH" )
+				strTryInstLoc      = ReadINI( strReadINI, strProgID, "TryInstallLocation" )
+				strUseProdVer      = ReadINI( strReadINI, strProgID, "UseProductVersion" )
+				strWebsiteDownload = ReadINI( strReadINI, strProgID, "WebsiteDownload" )
+				strWebsiteVersion  = ReadINI( strReadINI, strProgID, "WebsiteVersion" )
+				strWGetUseIE       = ReadINI( strReadINI, strProgID, "WGetUseIE" )
+				strWin32Product    = ReadINI( strReadINI, strProgID, "Win32Product" )
+				' Append to INI file
+				strINIText = strINIText & "[" & strProgID & "]" & vbCrLf
+				If strCommandLine <> "" Then strINIText = strINIText & "CommandLine="        & strCommandLine & vbCrLf
+				If strCustomEntry <> "" Then strINIText = strINIText & "CustomEntry="        & strCustomEntry & vbCrLf
+				If strDisplayName <> "" Then strINIText = strINIText & "DisplayName="        & strDisplayName & vbCrLf
+				If strDownloadReg <> "" Then strINIText = strINIText & "DownloadRegistered=" & strDownloadReg & vbCrLf
+				If strExecutable <> "" Then
+					strINIText = strINIText & "Executable=" & strExecutable & vbCrLf
+					If strExecutable2 <> "" Then strINIText = strINIText & "Executable2=" & strExecutable2 & vbCrLf
+				End If
+				If strHideProg   <> "" Then strINIText = strINIText & "HideProg=" & strHideProg & vbCrLf
+				If strIgnoreDots <> "" Then strINIText = strINIText & "IgnoreDots=" & strIgnoreDots & vbCrLf
+				If strOutputGrep <> "" Then strINIText = strINIText & "OutputGrep=" & strOutputGrep & vbCrLf
+				strINIText = strINIText & "ProgName="     & strProgName & vbCrLf
+				strINIText = strINIText & "RegexPattern=" & strRegexPattern & vbCrLf
+				If strRegPath <> "" Then
+					strINIText = strINIText & "RegPath=" & strRegPath & vbCrLf
+					If strRegPath2 <> "" Then strINIText = strINIText & "RegPath2=" & strRegPath2 & vbCrLf
+				End If
+				If strRegVersion <> "" Then
+					strINIText = strINIText & "RegVersion=" & strRegVersion & vbCrLf
+					If strRegVersion2 <> "" Then strINIText = strINIText & "RegVersion2=" & strRegVersion2 & vbCrLf
+				End If
+				If strSearchPath <> "" Then strINIText = strINIText & "SearchPATH="         & strSearchPath & vbCrLf
+				If strTryInstLoc <> "" Then strINIText = strINIText & "TryInstallLocation=" & strTryInstLoc & vbCrLf
+				If strUseProdVer <> "" Then strINIText = strINIText & "UseProductVersion="  & strUseProdVer & vbCrLf
+				strINIText = strINIText & "WebsiteDownload=" & strWebsiteDownload & vbCrLf
+				strINIText = strINIText & "WebsiteVersion="  & strWebsiteVersion  & vbCrLf
+				If strWGetUseIE    <> "" Then strINIText = strINIText & "WGetUseIE="    & strWGetUseIE & vbCrLf
+				If strWin32Product <> "" Then strINIText = strINIText & "Win32Product=" & strWin32Product & vbCrLf
+				strINIText = strINIText & vbCrLf
+			Else
+				intPrograms = intPrograms + 1
+				strMsgText  = strMsgText & strProgName & vbCrLf
+			End If
+		End If
+	Next
+	If intPrograms > 0 Then
+		If intPrograms = 1 Then
+			strPrompt  = strMsgText & " will be removed from the list"
+		Else
+			strPrompt  = "The following " & intPrograms & " programs will be removed from the list:" & vbCrLf & vbCrLf & strMsgText
+		End If
+		strTitle   = "Confirm Removal"
+		intButtons = vbOKCancel + vbExclamation + vbApplicationModal + vbDefaultButton2
+		intAnswer  = MsgBox( strPrompt, intButtons, strTitle )
+		If intAnswer = vbOK Then
+			Set objFSO      = CreateObject( "Scripting.FileSystemObject" )
+			Set objWriteINI = objFSO.OpenTextFile( gvsINIFile, ForWriting, True, TristateFalse )
+			objWriteINI.Write strINIText
+			objWriteINI.Close
+			Set objWriteINI = Nothing
+			Set objFSO      = Nothing
+		End If
+	End If
+	gvbChanged = False
+	Self.location.reload
+End Sub
+ 
+ 
+ 
+ 
+Sub SaveCustomEntries( )
+	Dim i
+	Dim objFSO, objCustomINI
+	Dim strCommandLine, strCustomEntry, strDisplayName, strDownloadReg, strExecutable, strExecutable2, strHideProg, strIgnoreDots
+	Dim strCustomINI, strINIText, strOutputGrep, strProgID, strProgName, strRegexPattern, strRegPath, strRegPath2
+	Dim strRegVersion, strRegVersion2, strSearchPath, strTryInstLoc, strUseProdVer, strWebsiteDownload, strWebsiteVersion, strWGetUseIE, strWin32Product
+	Backup gvsINIFile, gvsINIFile & "." & gvsINIVersion & ".backup." & TimeStamp( )
+	ListProgs gvsINIFile
+	strINIText = ""
+	For i = 0 To gvaProgNames.Count - 1
+		strProgID = gvaProgNames.GetKey(i)
+		If strProgID <> "UpdateCheck" Then
+			DebugMessage "CheckBox_" & strProgID & " checked: " & document.getElementById( "CheckBox_" & strProgID ).checked
+			strCustomEntry = gvaCustomEntries.Item( strProgID )
+			If strCustomEntry <> "" Then
+				strDownloadReg     = gvaDownloadReg.Item( strProgID )
+				strHideProg        = gvaHideProg.Item( strProgID )
+				strIgnoreDots      = gvaIgnoreDots.Item( strProgID )
+				strProgName        = gvaProgNames.Item( strProgID )
+				strCommandLine     = ReadINI( gvsINIFile, strProgID, "CommandLine" )
+				strDisplayName     = ReadINI( gvsINIFile, strProgID, "DisplayName" )
+				strExecutable      = ReadINI( gvsINIFile, strProgID, "Executable" )
+				strExecutable2     = ReadINI( gvsINIFile, strProgID, "Executable2" )
+				strOutputGrep      = ReadINI( gvsINIFile, strProgID, "OutputGrep" )
+				strRegexPattern    = ReadINI( gvsINIFile, strProgID, "RegexPattern" )
+				strRegPath         = ReadINI( gvsINIFile, strProgID, "RegPath" )
+				strRegPath2        = ReadINI( gvsINIFile, strProgID, "Regpath2" )
+				strRegVersion      = ReadINI( gvsINIFile, strProgID, "RegVersion" )
+				strRegVersion2     = ReadINI( gvsINIFile, strProgID, "RegVersion2" )
+				strSearchPath      = ReadINI( gvsINIFile, strProgID, "SearchPATH" )
+				strTryInstLoc      = ReadINI( gvsINIFile, strProgID, "TryInstallLocation" )
+				strUseProdVer      = ReadINI( gvsINIFile, strProgID, "UseProductVersion" )
+				strWebsiteDownload = ReadINI( gvsINIFile, strProgID, "WebsiteDownload" )
+				strWebsiteVersion  = ReadINI( gvsINIFile, strProgID, "WebsiteVersion" )
+				strWGetUseIE       = ReadINI( gvsINIFile, strProgID, "WGetUseIE" )
+				strWin32Product    = ReadINI( gvsINIFile, strProgID, "Win32Product" )
+				' Append to INI file
+				strINIText = strINIText & "[" & strProgID & "]" & vbCrLf
+				If strCommandLine <> "" Then strINIText = strINIText & "CommandLine="        & strCommandLine & vbCrLf
+				If strCustomEntry <> "" Then strINIText = strINIText & "CustomEntry="        & strCustomEntry & vbCrLf
+				If strDisplayName <> "" Then strINIText = strINIText & "DisplayName="        & strDisplayName & vbCrLf
+				If strDownloadReg <> "" Then strINIText = strINIText & "DownloadRegistered=" & strDownloadReg & vbCrLf
+				If strExecutable <> "" Then
+					strINIText = strINIText & "Executable=" & strExecutable & vbCrLf
+					If strExecutable2 <> "" Then strINIText = strINIText & "Executable2=" & strExecutable2 & vbCrLf
+				End If
+				If strHideProg <> "" Then strINIText = strINIText & "HideProg=" & strHideProg & vbCrLf
+				If strIgnoreDots <> "" Then strINIText = strINIText & "IgnoreDots=" & strIgnoreDots & vbCrLf
+				If strOutputGrep <> "" Then strINIText = strINIText & "OutputGrep=" & strOutputGrep & vbCrLf
+				strINIText = strINIText & "ProgName="     & strProgName & vbCrLf
+				strINIText = strINIText & "RegexPattern=" & strRegexPattern & vbCrLf
+				If strRegPath <> "" Then
+					strINIText = strINIText & "RegPath=" & strRegPath & vbCrLf
+					If strRegPath2 <> "" Then strINIText = strINIText & "RegPath2=" & strRegPath2 & vbCrLf
+				End If
+				If strRegVersion <> "" Then
+					strINIText = strINIText & "RegVersion=" & strRegVersion & vbCrLf
+					If strRegVersion2 <> "" Then strINIText = strINIText & "RegVersion2=" & strRegVersion2 & vbCrLf
+				End If
+				If strSearchPath <> "" Then strINIText = strINIText & "SearchPATH="         & strSearchPath & vbCrLf
+				If strTryInstLoc <> "" Then strINIText = strINIText & "TryInstallLocation=" & strTryInstLoc & vbCrLf
+				If strUseProdVer <> "" Then strINIText = strINIText & "UseProductVersion="  & strUseProdVer & vbCrLf
+				strINIText = strINIText & "WebsiteDownload=" & strWebsiteDownload & vbCrLf
+				strINIText = strINIText & "WebsiteVersion="  & strWebsiteVersion  & vbCrLf
+				If strWGetUseIE    <> "" Then strINIText = strINIText & "WGetUseIE="    & strWGetUseIE & vbCrLf
+				If strWin32Product <> "" Then strINIText = strINIText & "Win32Product=" & strWin32Product & vbCrLf
+				strINIText = strINIText & vbCrLf
+			End If
+		End If
+	Next
+	Set objFSO = CreateObject( "Scripting.FileSystemObject" )
+	With objFSO
+		strCustomINI = .BuildPath( .GetParentFolderName( Self.location.pathname ), .GetBaseName( Self.location.pathname ) & ".custom.ini" )
+		Backup strCustomINI, strCustomINI & "." & gvsINIVersion & ".backup." & TimeStamp( )
+		Set objCustomINI = .OpenTextFile( strCustomINI, ForWriting, True, TristateFalse )
+	End with
+	objCustomINI.Write strINIText
+	objCustomINI.Close
+	Set objCustomINI = Nothing
+	Set objFSO       = Nothing
+End Sub
+ 
+ 
+ 
+ 
+Sub SaveDebugLog( )
+	Dim objFSO, objLogFile
+	Dim strComputerName, strLogFile, strLogText
+	strLogText = gvoIEDebug.Document.body.innerText
+	Set objFSO = CreateObject( "Scripting.FileSystemObject" )
+	With objFSO
+		strLogFile = .BuildPath( .GetParentFolderName( Self.location.pathname ), .GetBaseName( Self.location.pathname ) & "." & gvsComputerName & "." & TimeStamp( ) & ".log" )
+		Set objLogFile = .OpenTextFile( strLogFile, ForWriting, True, TristateFalse )
+		objLogFile.Write strLogText
+		objLogFile.Close
+		Set objLogFile = Nothing
+	End With
+	Set objFSO = Nothing
+End Sub
+ 
+ 
+ 
+ 
+Function SearchCommandOutput( myCommandLine, myPattern )
+	Dim objExec, objMatches, objRE, wshShell
+	Dim strCmdGrep, strCmdOutput, strDebug, strVersion
+ 
+	DebugMessage "Trying to run the following command:" & vbCrLf & Escape( myCommandLine )
+	Set wshShell = CreateObject( "Wscript.Shell" )
+	Set objExec  = wshShell.Exec( myCommandLine )
+	strCmdOutput = objExec.StdOut.ReadAll
+	Set objExec  = Nothing
+	Set wshShell = Nothing
+	DebugMessage "Output returned by command:" & vbCrLf & Escape( strCmdOutput )
+ 
+	strVersion = "0"
+	If myPattern = "" Then
+		strVersion = Trim( strCmdOutput )
+	Else
+		strDebug = "Trying to find version using the following regex pattern:" & vbCrLf & Escape( myPattern ) & vbCrLf
+		Set objRE = New RegExp
+		objRE.Global  = False
+		objRE.Pattern = myPattern
+		Set objMatches = objRE.Execute( strCmdOutput )
+		If objMatches.Count = 0 Then
+			strDebug = strDebug & "No matches" & vbCrLf
+		Else
+			strDebug = strDebug & objMatches.Count & " match(es)" & vbCrLf
+			If objMatches.Item(0).Submatches.Count = 0 Then
+				strDebug = strDebug & "No submatches"
+			Else
+				strDebug   = strDebug & objMatches.Item(0).Submatches.Count & " submatch(es)"
+				strVersion = objMatches.Item(0).Submatches.Item(0)
+			End If
+		End If
+		Set objMatches = Nothing
+		Set objRE      = Nothing
+		DebugMessage strDebug
+	End If
+	SearchCommandOutput = strVersion
+End Function
+ 
+ 
+ 
+ 
+Function SearchDisplayName( myProg, myPattern )
+	Dim arrSubKeys
+	Dim blnMatch
+	Dim i
+	Dim objRE, objReg
+	Dim strDebug, strDisplayName, strDisplayVersion, strKeyPath, strResultName, strResultVersion
+ 
+	Set objRE = New RegExp
+	objRE.Pattern = myPattern
+	objRE.IgnoreCase = True
+ 
+	Set objReg = GetObject( "winmgmts:{impersonationLevel=impersonate}!//./root/default:StdRegProv" )
+	strKeyPath = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"
+	On Error Resume Next
+	objReg.EnumKey HKEY_LOCAL_MACHINE, strKeyPath, arrSubKeys
+	If Err Then
+		DebugMessage "Error searching for subkeys in ""HKEY_LOCAL_MACHINE\" & strKeyPath & """:" & vbCrLf & Err.Description
+	Else
+		strDebug = "Enumerating subkeys of ""HKEY_LOCAL_MACHINE\" & strKeyPath & """:"
+		For i = 0 To UBound( arrSubKeys )
+			strDebug = strDebug & vbCrLf & "HKEY_LOCAL_MACHINE\" & strKeyPath & "\" & arrSubKeys(i)
+			objReg.GetStringValue HKEY_LOCAL_MACHINE, strKeyPath & "\" & arrSubKeys(i), "DisplayName", strDisplayName
+			blnMatch = objRE.Test( strDisplayName )
+			If blnMatch Then
+				strDebug = strDebug & vbCrLf & vbTab & "DisplayName=" & strDisplayName
+				objReg.GetStringValue HKEY_LOCAL_MACHINE, strKeyPath & "\" & arrSubKeys(i), "DisplayVersion", strDisplayVersion
+				strDebug = strDebug & vbCrLf & vbTab & "DisplayVersion=" & strDisplayVersion
+				strResultVersion = CompareVersions( strResultVersion, strDisplayVersion )
+				strDebug = strDebug & vbCrLf & vbTab & "Result so far: " & strResultVersion
+				'If strResultVersion = strDisplayVersion Then strResultName = strDisplayName
+			End If
+		Next
+		DebugMessage strDebug
+	End If
+	On Error Goto 0
+ 
+	strKeyPath = "SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+	On Error Resume Next
+	objReg.EnumKey HKEY_LOCAL_MACHINE, strKeyPath, arrSubKeys
+	If Err Then
+		DebugMessage "Error searching for subkeys in ""HKEY_LOCAL_MACHINE\" & strKeyPath & """:" & vbCrLf & Err.Description
+	Else
+		strDebug = "Enumerating subkeys of ""HKEY_LOCAL_MACHINE\" & strKeyPath & """:"
+		For i = 0 To UBound( arrSubKeys )
+			strDebug = strDebug & vbCrLf & "HKEY_LOCAL_MACHINE\" & strKeyPath & "\" & arrSubKeys(i)
+			objReg.GetStringValue HKEY_LOCAL_MACHINE, strKeyPath & "\" & arrSubKeys(i), "DisplayName", strDisplayName
+			blnMatch = objRE.Test( strDisplayName )
+			If blnMatch Then
+				strDebug = strDebug & vbCrLf & vbTab & "DisplayName=" & strDisplayName
+				objReg.GetStringValue HKEY_LOCAL_MACHINE, strKeyPath & "\" & arrSubKeys(i), "DisplayVersion", strDisplayVersion
+				strDebug = strDebug & vbCrLf & vbTab & "DisplayVersion=" & strDisplayVersion
+				strResultVersion = CompareVersions( strResultVersion, strDisplayVersion )
+				strDebug = strDebug & vbCrLf & vbTab & "Result so far: " & strResultVersion
+				'If strResultVersion = strDisplayVersion Then strResultName = strDisplayName
+			End If
+		Next
+		DebugMessage strDebug
+	End If
+	On Error Goto 0
+ 
+	If strResultName <> "" And strResultName <> myPattern Then
+		document.getElementById( "Progname_" & myProg ).innerHTML = strResultName
+	End If
+ 
+	Set objReg = Nothing
+	Set objRE  = Nothing
+ 
+	SearchDisplayName = strResultVersion
+End Function
+ 
+ 
+ 
+ 
+Function SearchPATH( myProg, myExec, myUseProdVer )
+	Dim objFile, objFSO, objMatches, objRE
+	Dim strDebug, strExec, strExt, strHTAText, strVersion
+ 
+	strExec = Which( myExec )
+ 
+	Set objFSO = CreateObject( "Scripting.FileSystemObject" )
+ 
+	If objFSO.FileExists( strExec ) Then
+		strExt = LCase( objFSO.GetExtensionName( strExec ) )
+		If strExt = "hta" Then
+			On Error Resume Next
+ 
+			strDebug = "Trying to open the HTA file for reading: "
+			Set objFile = objFSO.OpenTextFile( strExec, ForReading, False, TristateFalse )
+			If Err Then
+				strDebug = strDebug & "FAILED" & vbCrLf & Err.Description
+			Else
+				strDebug = strDebug & "OK"
+			End If
+			DebugMessage strDebug
+			strDebug = "Trying to read the HTA file: "
+			strHTAText  = objFile.ReadAll( )
+			If Err Then
+				strDebug = strDebug & "FAILED" & vbCrLf & Err.Description
+			Else
+				strDebug = strDebug & "OK" & vbCrLf & Len( strHTAText ) & " bytes read"
+			End If
+			DebugMessage strDebug
+			Set objFile = Nothing
+ 
+			On Error Goto 0
+ 
+			Set objRE = New RegExp
+			objRE.Pattern    = "<HTA:APPLICATION[^>]*VERSION=""(\d[\d\.]*)"""
+			objRE.Global     = False
+			objRE.IgnoreCase = True
+			strDebug = "Trying to find HTA version using the following regex pattern:" & vbCrLf & Escape( objRE.Pattern ) & vbCrLf
+			Set objMatches = objRE.Execute( strHTAText )
+			If objMatches.Count = 0 Then
+				strDebug = strDebug & "No matches"
+			Else
+				strDebug = strDebug & objMatches.Count & " match(es)" & vbCrLf
+				If objMatches(0).Submatches.Count = 0 Then
+					strDebug = strDebug & "No submatches"
+				Else
+					strDebug = strDebug & objMatches.Item(0).Submatches.Count & " submatch(es)"
+					strVersion = objMatches.Item(0).Submatches.Item(0)
+				End If
+			End If
+			Set objMatches = Nothing
+			Set objRE      = Nothing
+			DebugMessage strDebug
+		Else
+			If myUseProdVer = "" Then
+				DebugMessage "Retrieving executable's file version . . ."
+				strVersion = GetFileVersion( strExec )
+			Else
+				DebugMessage "Retrieving executable's product version . . ."
+				strVersion = GetProductVersion( strExec )
+			End If
+		End If
+	End If
+ 
+	Set objFSO = Nothing
+ 
+	SearchPATH = strVersion
+End Function
+ 
+ 
+ 
+ 
+Function SearchRegPath( myProg, myRegPath, myRegPath2, myExec, myUseProdVer )
+	Dim objFSO, wshShell
+	Dim strPath, strVersion
+ 
+	strVersion = "0"
+ 
+	Set objFSO   = CreateObject( "Scripting.FileSystemObject" )
+	Set wshShell = CreateObject( "Wscript.Shell" )
+ 
+	On Error Resume Next
+ 
+	strPath = wshShell.RegRead( myRegPath )
+	DebugMessage "Result value found:" & vbCrLf & "RegPath = """ & strPath & """"
+	If Err Then
+		strPath = wshShell.RegRead( myRegPath2 )
+		DebugMessage "Result value found:" & vbCrLf & "RegPath2 = """ & strPath & """"
+	End If
+ 
+	On Error Goto 0
+ 
+	If myExec <> "" Then
+		strPath = objFSO.BuildPath( Strip( strPath ), myExec )
+		DebugMessage "Result value found:" & vbCrLf & "Executable = """ & strPath & """"
+	End If
+ 
+	If objFSO.FileExists( strPath ) Then
+		If myUseProdVer = "" Then
+			strVersion = GetFileVersion( strPath )
+		Else
+			strVersion = GetProductVersion( strPath )
+		End If
+	Else
+		DebugMessage "File not found: """ & strPath & """"
+	End If
+ 
+	Set wshShell = Nothing
+	Set objFSO   = Nothing
+ 
+	SearchRegPath = strVersion
+End Function
+ 
+ 
+ 
+ 
+Function SearchRegVersion( myProg, myRegVersion, myRegVersion2 )
+	Dim blnError, strVersion, wshShell
+ 
+	Set wshShell = CreateObject( "Wscript.Shell" )
+ 
+	blnError = False
+ 
+	If Right( myRegVersion, 2 ) = "\*" Then
+		' Find the numeric subkey with the highest version number
+		strVersion = ReadRegKeysNumeric( myRegVersion )
+	ElseIf InStr( myRegVersion, "*" ) Then
+		' Find the matching alphanumeric subkey with the highest version number
+		strVersion = ReadRegKeysWithNum( myRegVersion )
+	Else
+		On Error Resume Next
+ 
+		' Read the version directly from the registry
+		strVersion = wshShell.RegRead( myRegVersion )
+		If Err Then
+			DebugMessage "Error reading RegVersion """ & myRegVersion & """:" & vbCrLf & Err.Description
+			blnError = True
+		End If
+ 
+		On Error Goto 0
+	End If
+	DebugMessage "RegVersion """ & myRegVersion & """ returned """ & strVersion & """"
+ 
+	If blnError Or ( strVersion = "0.0.0.0" ) Or ( strVersion = "0" ) Or ( strVersion = "" ) Then
+		If myRegVersion2 <> "" Then
+			If Right( myRegVersion2, 2 ) = "\*" Then
+				' Find the numeric subkey with the highest version number
+				strVersion = ReadRegKeysNumeric( myRegVersion2 )
+			ElseIf InStr( myRegVersion2, "*" ) Then
+				' Find the matching alphanumeric subkey with the highest version number
+				strVersion = ReadRegKeysWithNum( myRegVersion2 )
+			Else
+				On Error Resume Next
+ 
+				' Read the version directly from the registry
+				strVersion = wshShell.RegRead( myRegVersion2 )
+				If Err Then
+					DebugMessage "Error reading RegVersion2 """ & myRegVersion2 & """:" & vbCrLf & Err.Description
+					blnError = True
+				End If
+ 
+				On Error Goto 0
+			End If
+			DebugMessage "RegVersion2 """ & myRegVersion2 & """ returned """ & strVersion & """"
+		End If
+	End If
+ 
+	Set wshShell = Nothing
+ 
+	SearchRegVersion = strVersion
+End Function
+ 
+ 
+ 
+ 
+Function SearchWMI( myProg, myWin32Product, myTryInstLoc, myExec, myUseprodVer )
+	Dim colInstances, objFSO, objInstance, objWMIService
+	Dim strDebug, strExec, strPath, strVersion
+ 
+	Set objFSO = CreateObject( "Scripting.FileSystemObject" )
+ 
+	strDebug = "Connecting to WMI: "
+ 
+	On Error Resume Next
+ 
+	Set objWMIService = GetObject( "winmgmts://./root/CIMV2" )
+	If Err Then
+		strDebug = strDebug & "FAILED" & vbCrLf & Err.Description
+	Else
+		strDebug = strDebug & "OK"
+	End If
+	DebugMessage strDebug
+	strDebug = "Querying WMI: "
+	Set colInstances  = objWMIService.ExecQuery( "SELECT * FROM Win32_Product WHERE Caption LIKE """ & myWin32Product & """" )
+	If Err Then
+		strDebug = strDebug & "FAILED" & vbCrLf & Err.Description
+	Else
+		strDebug = strDebug & "OK"
+		If colInstances.Count = 0 Then
+			strDebug = strDebug & vbCrLf & "No match found"
+		ElseIf colInstances.Count = 1 Then
+			strDebug = strDebug & vbCrLf & "1 match found: "
+			For Each objInstance In colInstances
+				strDebug = strDebug & objInstance.Caption
+			Next
+		Else
+			strDebug = strDebug & vbCrLf & colInstances.Count & " matches found:"
+			For Each objInstance In colInstances
+				strDebug = strDebug & vbCrLf & objInstance.Caption
+			Next
+		End If
+	End If
+ 
+	On Error Goto 0
+ 
+	DebugMessage strDebug
+ 
+	strVersion = "0.0.0.0"
+	For Each objInstance In colInstances
+		DebugMessage "Version returned """ & objInstance.Version & """" & vbCrLf & "InstallLocation returned """ & objInstance.InstallLocation & """"
+		If myTryInstLoc = "" Then
+			'MsgBox "Old version: " & strVersion & vbCrLf & "WMI found version: " & objInstance.Version & vbCrLf & "New version: " & CompareVersions( strVersion, objInstance.Version )
+			strVersion = CompareVersions( strVersion, objInstance.Version )
+		ElseIf IsNullOrEmpty( objInstance.InstallLocation ) Then
+			'MsgBox "Old version: " & strVersion & vbCrLf & "WMI found version: " & objInstance.Version & vbCrLf & "New version: " & CompareVersions( strVersion, objInstance.Version )
+			strVersion = CompareVersions( strVersion, objInstance.Version )
+		ElseIf myExec <> "" Then
+			strExec = objFSO.BuildPath( objInstance.InstallLocation, myExec )
+			DebugMessage "InstallLocation combined with Executable returned """ & strExec & """"
+			If objFSO.FileExists( strExec ) Then
+				If myUseprodVer = "" Then
+					'MsgBox "Old version: " & strVersion & vbCrLf & "File version: " & objInstance.Version & vbCrLf & "New version: " & CompareVersions( strVersion, GetFileVersion( strExec ) )
+					strVersion = CompareVersions( strVersion, GetFileVersion( strExec ) )
+					DebugMessage "File version returned """ & GetFileVersion( strExec ) & """"
+				Else
+					'MsgBox "Old version: " & strVersion & vbCrLf & "Product version: " & objInstance.Version & vbCrLf & "New version: " & CompareVersions( strVersion, GetProductVersion( strExec ) )
+					strVersion = CompareVersions( strVersion, GetProductVersion( strExec ) )
+					DebugMessage "File version returned """ & GetProductVersion( strExec ) & """"
+				End If
+			Else
+				DebugMessage "File not found"
+			End If
+		Else
+			DebugMessage "Unable to retrieve program version"
+		End If
+		' Replace ASCII characters 255 by spaces
+		gvaProgNames.Item( myProg ) = Replace( objInstance.Name, Chr(255), " " )
+		document.getElementById( "ProgName_" & myProg ).innerHTML = gvaProgNames.Item( myProg )
+	Next
+	If strVersion = "0.0.0.0" Then strVersion = "0"
+ 
+	Set colInstances  = Nothing
+	Set objWMIService = Nothing
+	Set objFSO        = Nothing
+ 
+	SearchWMI = strVersion
+End Function
+ 
+ 
+ 
+ 
+Sub ShowAllDownloads( )
+	ButtonShowAllDownloads.disabled = True
+	gvbForceCheck = True
+	ShowProgs
+End Sub
+ 
+ 
+ 
+ 
+Sub ShowProgs( )
+	Dim arrLatestVersion, arrProgVersion
+	Dim blnDownGrade, blnHideProg, blnVersionMatch
+	Dim i, intMinLength, j
+	Dim objRE
+	Dim strDebug, strLatestVersion, strProgID, strProgVersion
+	For i = 0 To gvaProgNames.Count - 1
+		strProgID = gvaProgNames.GetKey(i)
+		blnHideProg  = CBool( gvaHideProg.Item( strProgID ) <> "" )
+		If strProgID = "UpdateCheckHTA" Or strProgID = "UpdateCheckINI" Then blnHideProg = False
+		' Uncheck if excluded in INI file
+		document.getElementById( "CheckBox_" & strProgID ).checked = Not blnHideProg
+		If blnHideprog Then
+			DebugMessage "Hiding <b>""" & gvaProgNames.Item( strProgID ) & """</b>"
+		Else
+			blnVersionMatch  = True
+			strLatestVersion = gvaLatestVersions.Item( strProgID )
+			strProgVersion   = gvaProgVersions.Item( strProgID )
+			strDebug = "Preparing display of results for <b>""" & gvaProgNames.Item( strProgID ) & """</b>:" & vbCrLf
+			' Uncheck if not installed
+			If strProgVersion = "0" Then
+				document.getElementById( "CheckBox_" & strProgID ).checked = False
+				ButtonSaveChanges.disabled = False
+				gvbChanged = True
+				document.getElementById( "InstalledVersion_" & strProgID ).innerHTML = "Not Installed"
+				If gvbSkipWMI Then
+					strDebug = strDebug & "Program not installed, not found or skipped." & vbCrLf & "Uncheck checkbox." & vbCrLf
+				Else
+					strDebug = strDebug & "Program not installed or not found." & vbCrLf & "Uncheck checkbox." & vbCrLf
+				End If
+				If gvbForceCheck Then
+					document.getElementById( "LatestVersion_"    & strProgID ).innerHTML = strLatestVersion
+					strDebug = strDebug & "Show all downloads selected, listing latest version." & vbCrLf
+				Else
+					document.getElementById( "LatestVersion_"    & strProgID ).innerHTML = ""
+					strDebug = strDebug & "Skip latest version." & vbCrLf
+				End If
+			Else
+				document.getElementById( "InstalledVersion_" & strProgID ).innerHTML = strProgVersion
+				strDebug = strDebug & "Display installed version: " & strProgVersion & vbCrLf
+				If strLatestVersion = "0" Then
+					document.getElementById( "LatestVersion_"    & strProgID ).innerHTML = "Not Found"
+					strDebug = strDebug & "Latest version could not be found." & vbCrLf
+				Else
+					document.getElementById( "LatestVersion_"    & strProgID ).innerHTML = strLatestVersion
+					strDebug = strDebug & "Display latest version: " & strLatestVersion & vbCrLf
+				End If
+			End If
+			If strProgVersion <> "0" And strLatestVersion <> "0" Then
+				strDebug = strDebug & "Starting version comparison." & vbCrLf
+				If gvaIgnoreDots.Item( strProgID ) = "" Then
+					intMinLength = Min( Len( gvaLatestVersions.Item( strProgID ) ), Len( gvaProgVersions.Item( strProgID ) ) )
+					If Left( gvaLatestVersions.Item( strProgID ), intMinLength ) <> Left( gvaProgVersions.Item( strProgID ), intMinLength ) Then
+						blnVersionMatch = False
+						strDebug = strDebug & "Sorry, no match yet." & vbCrLf
+					End If
+				Else
+					strDebug = strDebug _
+					         & "IgnoreDots = """ & gvaIgnoreDots.Item( strProgID ) & """, so remove dots from version numbers." & vbCrLf _
+					         & "Compare """ & Replace( gvaProgVersions.Item( strProgID ), ".", "" ) & """ (installed) against """ & Replace( gvaLatestVersions.Item( strProgID ), ".", "" ) & """ (latest)" & vbCrLf
+					intMinLength = Min( Len( Replace( gvaLatestVersions.Item( strProgID ), ".", "" ) ), Len( Replace( gvaProgVersions.Item( strProgID ), ".", "" ) ) )
+					If Left( Replace( gvaLatestVersions.Item( strProgID ), ".", "" ), intMinLength ) <> Left( Replace( gvaProgVersions.Item( strProgID ), ".", "" ), intMinLength ) Then
+						blnVersionMatch = False
+						strDebug = strDebug & "Sorry, no match yet." & vbCrLf
+					End If
+				End If
+			End If
+			' Try again after removing leading zeros and/or dots
+			If Not blnVersionMatch Then
+				Set objRE = New RegExp
+				objRE.Global = True
+				objRE.Pattern = "(?:\.|^)0+([^\.])"
+				strDebug = strDebug _
+				         & "Remove leading zeros." & vbCrLf _
+				         & "Installed version : """ & strProgVersion   & """ => """ & objRE.Replace( strProgVersion,     ".$1" ) & """" & vbCrLf _
+				         & "Latest version    : """ & strLatestVersion & """ => """ & objRE.Replace( strLatestVersion,   ".$1" ) & """" & vbCrLf _
+				         & "Now try again." & vbCrLf
+				strLatestVersion = objRE.Replace( strLatestVersion, ".$1" )
+				strProgVersion   = objRE.Replace( strProgVersion,   ".$1" )
+				arrLatestVersion = Split( strLatestVersion, "." )
+				arrProgVersion   = Split( strProgVersion,   "." )
+				intMinLength     = Min( UBound( arrLatestVersion ), UBound( arrProgVersion ) )
+				blnVersionMatch  = True
+				If gvaIgnoreDots.Item( strProgID ) = "" Then
+					For j = 0 To intMinLength
+						If arrProgVersion(j) = arrLatestVersion(j) Then
+							strDebug = strDebug & "Digits #" & CStr( j + 1 ) & " match." & vbCrLf
+						Else
+							strDebug = strDebug & "Mismatch of digits #" & CStr( j + 1 ) & "." & vbCrLf
+							blnVersionMatch = False
+							Exit For
+						End If
+					Next
+				Else
+					strLatestVersion = Join( arrLatestVersion, "" )
+					strProgVersion   = Join( arrProgVersion,   "" )
+					intMinLength     = Min( Len( strLatestVersion ), Len( strProgVersion ) )
+					strDebug = strDebug _
+					         & "IgnoreDots = """ & gvaIgnoreDots.Item( strProgID ) & """, so remove dots from version numbers." & vbCrLf _
+					         & "Compare """ & strProgVersion & """ (installed) against """ & strLatestVersion & """ (latest)" & vbCrLf
+					If Left( strLatestVersion, intMinLength ) <> Left( strProgVersion, intMinLength ) Then
+						blnVersionMatch = False
+					End If
+				End If
+			End If
+			blnDownGrade = False
+			If blnVersionMatch Then
+				If strProgVersion = "0" Then
+					strDebug = strDebug & "Not tested." & vbCrLf
+				Else
+					strDebug = strDebug & "We have a match." & vbCrLf
+				End If
+			Else
+				blnDownGrade = InStr( strProgVersion, CompareVersions( strProgVersion, strLatestVersion ) )
+				If blnDownGrade Then
+					strDebug = strDebug & "Sorry, no match, but a downgrade instead." & vbCrLf
+				Else
+					strDebug = strDebug & "Sorry, no match." & vbCrLf
+				End If
+			End If
+			If ( blnVersionMatch Or ( gvbSkipDowngrades And blnDownGrade ) And Not gvbForceCheck ) Then
+				document.getElementById( "VersionMatch_" & strProgID ).innerHTML = ""
+			Else
+				document.getElementById( "VersionMatch_" & strProgID ).innerHTML = "<input type=""button"" id=""ButtonDownload_" & strProgID & """ value=""Download"" onclick=""DownloadProgUpdate('" & strProgID & "')"">"
+			End If
+			If strLatestVersion = "0" Then
+				document.getElementById( "VersionMatch_" & strProgID ).innerHTML = "<input type=""button"" id=""ButtonDownload_" & strProgID & """ value=""Check"" onclick=""CheckProgUpdate('" & strProgID & "')"">"
+			End If
+			If strProgVersion = "0" Then
+				document.getElementById( "VersionMatch_" & strProgID ).innerHTML = "<input type=""button"" id=""ButtonDownload_" & strProgID & """ value=""Download"" onclick=""DownloadProgUpdate('" & strProgID & "')"">"
+			End If
+			If gvbForceCheck Or Not blnVersionMatch Then
+				If strProgID = "UpdateCheckHTA" Then
+					document.getElementById( "VersionMatch_UpdateCheckHTA" ).innerHTML = "<input type=""button"" id=""ButtonDownload_UpdateCheckHTA"" value=""Install"" onclick=""UpdateHTA"">"
+				End If
+				If strProgID = "UpdateCheckINI" Then
+					document.getElementById( "VersionMatch_UpdateCheckINI" ).innerHTML = "<input type=""button"" id=""ButtonDownload_UpdateCheckINI"" value=""Update"" onclick=""UpdateProgList"">"
+				End If
+			End If
+			If Not blnVersionMatch Then gvbUpdatesFound = True
+			If gvbLatestListComplete Then DebugMessage strDebug
+		End If
+	Next
+End Sub
+ 
+ 
+ 
+ 
+Sub Sort( ByRef myArray )
+	Dim i, j, strHolder
+	For i = ( UBound( myArray ) - 1 ) to 0 Step -1
+		For j= 0 to i
+			If UCase( myArray( j ) ) > UCase( myArray( j + 1 ) ) Then
+				strHolder        = myArray( j + 1 )
+				myArray( j + 1 ) = myArray( j )
+				myArray( j )     = strHolder
+			End If
+		Next
+	Next 
+End Sub
+ 
+ 
+ 
+ 
+Function Strip( myString )
+	Dim strString
+	strString = Trim( myString )
+	Do While Left( strString, 1 ) = " " Or Left( strString, 1 ) = Chr(9) Or Left( strString, 1 ) = """" Or Left( strString, 1 ) = "[" Or Left( strString, 1 ) = vbCr Or Left( strString, 1 ) = vbLf
+		strString = Mid( strString, 2 )
+	Loop
+	Do While Right( strString, 1 ) = " " Or Right( strString, 1 ) = Chr(9) Or Right( strString, 1 ) = """" Or Right( strString, 1 ) = "]" Or Right( strString, 1 ) = vbCr Or Right( strString, 1 ) = vbLf
+		strString = Mid( strString, 1, Len( strString ) - 1 )
+	Loop
+	Strip = strString
+End Function
+ 
+ 
+ 
+ 
+Function TextFromHTML( myURL )
+    Dim objHTTP
+    TextFromHTML = ""
+ 
+'    On Error Resume Next
+ 
+    Set objHTTP = CreateObject( "WinHttp.WinHttpRequest.5.1" )
+    objHTTP.Open "GET", myURL
+    objHTTP.Send
+    ' Check if the result was valid, and if so return the result
+    If objHTTP.Status = 200 Then
+    	TextFromHTML = objHTTP.ResponseText
+    End If
+    Set objHTTP = Nothing
+ 
+    On Error Goto 0
+End Function
+ 
+ 
+ 
+ 
+Function TimeStamp( )
+	' Return current date and time in yyyyMMddhhmmss format
+	TimeStamp = Year( Now ) & Right( "0" & Month( Now ), 2 ) & Right( "0" & Day( Now ), 2 ) & Right( "0" & Hour( Now ), 2 ) & Right( "0" & Minute( Now ), 2 ) & Right( "0" & Second( Now ), 2 )
+End Function
+ 
+ 
+ 
+ 
+Sub UpdateHTA( )
+	Dim objFSO
+	' Delete existing ZIP file
+	Set objFSO = CreateObject( "Scripting.FileSystemObject" )
+	If objFSO.FileExists( gvsZIPFile ) Then objFSO.DeleteFile gvsZIPFile, True
+	Set objFSO = Nothing
+	' Backup current HTA
+	Backup Self.location.pathname, Self.location.pathname & "." & UpdateCheck.Version & ".backup." & TimeStamp( )
+	If Download( URL_DOWNLOAD_ZIP, gvsZIPFile ) > 10000 Then
+		' Overwrite current HTA with extracted new version and restart HTA
+		Extract gvsZIPFile, gvsCurDir
+		Self.location.reload
+	Else
+		' Delete corrupted ZIP file
+		If objFSO.FileExists( gvsZIPFile ) Then objFSO.DeleteFile gvsZIPFile, True
+		intButtons = vbOKOnly + vbExclamation + vbApplicationModal
+		strPrompt  = "An error occurred while trying to download ""updatecheck.zip""." _
+		           & vbCrLf & vbCrLf _
+		           & "Try again later, or contact the author if the problem persists."
+		strTitle   = "Download Error"
+		MsgBox strPrompt, intButtons, strTitle
+	End If
+End Sub
+ 
+ 
+ 
+ 
+Sub UpdateProgList( )
+	Dim objFSO, strWebINI, wshShell
+	ButtonUpdateProgList.disabled = True
+	ButtonSaveChanges.disabled    = False
+	Set objFSO = CreateObject( "Scripting.FileSystemObject" )
+	strWebINI  = objFSO.BuildPath( gvsCurDir, Right( URL_WEB_INI, Len( URL_WEB_INI ) - InStrRev( URL_WEB_INI, "/" ) ) )
+	Set objFSO = Nothing
+	SaveCustomEntries
+	Download URL_WEB_INI, strWebINI
+	gvsWebINIVersion = TextFromHTML( URL_LATESTVER_INI )
+	ClearTable
+	Initialize
+	ListProgs strWebINI
+	CreateTable
+	ShowProgs
+	ListInstalledVersions strWebINI
+	ShowProgs
+	gvbUpdateProgList = True
+End Sub
+ 
+ 
+ 
+ 
+Function Which( myProgName )
+	' This function searches the directories in the PATH for
+	' the specified program executable (name and extension)
+	Dim arrPath
+	Dim i
+	Dim objFound, objFSO, wshShell
+	Dim strFound, strTestPath
+	Set objFSO   = CreateObject( "Scripting.FileSystemObject" )
+	Set wshShell = CreateObject( "Wscript.Shell" )
+	strFound = ""
+	arrPath  = Split( wshShell.ExpandEnvironmentStrings( "%PATH%" ), ";" )
+	For i = 0 To UBound( arrPath )
+		' Skip empty directory values, caused by the PATH
+		' variable being terminated with a semicolon
+		If Trim( arrPath(i) ) <> "" Then
+			' Build a fully qualified path of the file to test for
+			strTestPath = objFSO.BuildPath( arrPath(i), myProgName )
+			' Check if that file exists
+			If objFSO.FileExists( strTestPath ) Then
+				' Create an object instance
+				Set objFound = objFSO.GetFile( strTestPath )
+				' Return the full path with proper capitalization
+				strFound = objFSO.GetAbsolutePathName( strTestPath )
+				' Clear the object instance
+				Set objFound = Nothing
+				' Abort when the first matching file is found
+				Exit For
+			End If
+		End If
+	Next
+	Set wshShell = Nothing
+	Set objFSO   = Nothing
+	DebugMessage "Result value found:" & vbCrLf & "Executable = """ & strFound & """"
+	Which = strFound
+End Function
+ 
+ 
+ 
+ 
+Sub Window_OnLoad
+	Initialize
+	WindowSize
+	If gvbQuiet Then MinimizeWindow.click
+	If Not IsAdmin( True ) Then
+		Self.window.close
+		Exit Sub
+	End If
+	setTimeout "GetPID", 100, "VBScript"
+	If InStr( UCase( gvsCommandLine ), "/HELP" ) Or InStr( gvsCommandLine, "/?" ) Then setTimeout "Help", 5000, "VBScript"
+	ListProgs gvsINIFile
+	CreateTable
+	ClearIECache
+	ShowProgs
+	ButtonsBlock.style.display     = "block"
+	CopyrightsNotice.style.display = "block"
+	ListInstalledVersions gvsINIFile
+	If gvbSkipNotInstalled Then
+		ClearNotInstalled
+		ClearTable
+		CreateTable
+	End If
+	ShowProgs
+	DebugMessage "<h1>* * * PART III: CHECK THE WEB FOR UPDATES * * *</h1>"
+	document.body.scrollTop = document.body.scrollTop + document.body.scrollHeight
+	gvtTimer = setTimeout( "ListLatestVersions """ & gvsINIFile & """", 100, "VBScript" )
+End Sub
+ 
+ 
+ 
+ 
+Sub Window_OnUnload
+	Dim intAnswer, intYNButtons, strPrompt, strTitle
+ 
+'	On Error Resume Next
+ 
+	If ( gvbChanged Or gvbUpdateProgList ) And Not gvbQuiet Then
+		intYNButtons = vbYesNoCancel + vbQuestion + vbApplicationModal + vbDefaultButton2
+		strPrompt    = "Do you want to save the INI file changes?" & vbCrLf & vbCrLf & "Clicking ""Yes"" will remove all unchecked programs from the list."
+		strTitle     = "Save Changes?"
+		intAnswer    = MsgBox( strPrompt, intYNButtons, strTitle )
+		If intAnswer = vbYes Then
+			On Error Goto 0
+ 
+			SaveChanges
+ 
+'			On Error Resume Next
+		End If
+	End If
+	Set gvaCustomEntries  = Nothing
+	Set gvaDownloadReg    = Nothing
+	Set gvaHideProg       = Nothing
+	Set gvaHives          = Nothing
+	Set gvaIgnoreDots     = Nothing
+	Set gvaLatestVersions = Nothing
+	Set gvaProgNames      = Nothing
+	Set gvaProgVersions   = Nothing
+	' Close IE window
+	If gvbDebug Then SaveDebugLog
+	gvoIEDebug.Quit
+	Set gvoIEDebug = Nothing
+ 
+	On Error Goto 0
+End Sub
+ 
+ 
+ 
+ 
+Sub WindowSize( )
+	Dim intH, intW, intX, intY
+	intH = Min( gviWindowHeight, window.screen.height )
+	intW = Min( gviWindowWidth,  window.screen.width  )
+	intX = Max( 0, Int( ( window.screen.width  - intW ) / 2 ) )
+	intY = Max( 0, Int( ( window.screen.height - intH ) / 2 ) )
+	window.resizeTo intW, intH
+	window.moveTo intX, intY
+End Sub
+</script>
+ 
+<body>
+ 
+<!-- This hidden input works together with the JavaScript function "_minWin()" and the object "HHCtrlMinimizeWindowObject" to minimize the HTA window (e.g. use "MinimizeWindow.click" in VBScript) -->
+<input type="hidden" name="MinimizeWindow" id="MinimizeWindow" onclick="javascript:_jsMinWin();" />
+ 
+<div class="Center">
+ 
+<table id="AllProgTable" class="Left"></table>
+ 
+<div id="CreditsBlock" style="display: none;">
+ 
+<h1>Credits</h1>
+ 
+<p><code>Download</code> subroutine based on a script found on the Thai Visa forum:<br>
+<a href="http://www.thaivisa.com/forum/index.php?showtopic=21832">http://www.thaivisa.com/forum/index.php?showtopic=21832</a></p>
+ 
+<p><code>GetProductVersion</code> code by Maputi on StackOverflow.com:<br>
+<a href="http://stackoverflow.com/questions/2976734/">http://stackoverflow.com/questions/2976734/</a></p>
+ 
+<p><code>Maximize</code> code by Alan Kaplan:<br>
+<a href="http://www.akaplan.com/blog/2010/06/how-to-maximize-a-minimized-hta-file/">http://www.akaplan.com/blog/2010/06/how-to-maximize-a-minimized-hta-file/</a></p>
+ 
+<p><code>Minimize</code> window functionality by Josh D'Alessio:<br>
+<a href="http://quiome.blogspot.nl/2010/02/paypal-safer-easier-way-to-pay-online.html">http://quiome.blogspot.nl/2010/02/paypal-safer-easier-way-to-pay-online.html</a></p>
+ 
+<p>ZIP file extraction code by Microsoft:<br>
+<a href="http://msdn.microsoft.com/en-us/library/ms723207.aspx">http://msdn.microsoft.com/en-us/library/ms723207.aspx</a></p>
+ 
+<p><code>IsAdmin</code> code by Denis St-Pierre:<br>
+<a href="http://www.robvanderwoude.com/clevertricks.php#Elevated">http://www.robvanderwoude.com/clevertricks.php#Elevated</a></p>
+ 
+<p>Array <code>Sort</code> code by the Scripting Guys:<br>
+<a href="http://www.microsoft.com/technet/scriptcenter/resources/qanda/nov04/hey1122.mspx">http://www.microsoft.com/technet/scriptcenter/resources/qanda/nov04/hey1122.mspx</a></p>
+ 
+<p>Internet Explorer based debug window based on code from Don Jones' book:<br>
+<a href="http://astore.amazon.com/scriptingbooks-20/detail/0321501713/190-0304176-5019553">VBScript, WMI, and ADSI Unleashed: Using VBScript, WMI, and ADSI to Automate Windows Administration</a></p>
+ 
+<p>Window scrolling code by C.C. White on StackOverflow.com:<br>
+<a href="http://stackoverflow.com/questions/5936668/vbscript-how-to-force-the-ie-scroll-bars-to-lock-to-the-bottom">http://stackoverflow.com/questions/5936668/vbscript-how-to-force-the-ie-scroll-bars-to-lock-to-the-bottom</a></p>
+ 
+<p>Thanks!</p>
+ 
+</div>
+ 
+<p id="ButtonsBlock" style="display: none;">
+<input type="button" name="ButtonRescanPrograms"   id="ButtonRescanPrograms"   value="Rescan Programs"     onclick="vbscript:RescanPrograms"   disabled="disabled" title="Reload the initial (local) program list" />
+&nbsp;
+<input type="button" name="ButtonShowAllDownloads" id="ButtonShowAllDownloads" value="Show All Downloads"  onclick="vbscript:ShowAllDownloads" disabled="disabled" title="Reload the initial (local) program list" />
+&nbsp;
+<input type="button" name="ButtonHelp"             id="ButtonHelp"             value="Help"                onclick="vbscript:Help"                                 title="Show help for UpdateCheck.hta" />
+<br>
+&nbsp;
+<br>
+<input type="button" name="ButtonUpdateProgList"   id="ButtonUpdateProgList"   value="Update Program List" onclick="vbscript:UpdateProgList"   disabled="disabled" title="Get the latest program list from the web and check which programs are installed on this computer. WARNING: This will overwrite any changes YOU made to the program list (UpdateCheck.ini)!" />
+&nbsp;
+<input type="button" name="ButtonSaveChanges"      id="ButtonSaveChanges"      value="Save Changes"        onclick="vbscript:SaveChanges"      disabled="disabled" title="Save the changes and load the new program list" />
+&nbsp;
+<input type="button" name="ButtonCredits"          id="ButtonCredits"          value="Credits"             onclick="vbscript:Credits"                              title="Show credits for UpdateCheck.hta" />
+</p>
+ 
+<p id="CopyrightsNotice" style="display: none;"></p>
+ 
+</div>
+ 
+</div>
+ 
+</body>
+</html>
