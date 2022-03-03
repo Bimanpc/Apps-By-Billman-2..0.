@@ -1,0 +1,39 @@
+Intel® Processor Identification Utility
+Version : 6.7.21.1028
+TimeStamp : 2022/03/03 07:24:12
+Operating System : Microsoft Windows NT 6.1.7601 Service Pack 1
+Number of processors in system: 1
+Current processor: 1
+Active cores per processor: 2
+Disabled cores per processor: 0
+Processor Name: Intel(R) Pentium(R) CPUE5700 @ 3.00GHz
+Type : 0
+Family : 6
+Model : 17
+Stepping : A
+Revision: A07
+Maximum CPUID Level: 13
+L1 Instruction Cache: 2 x 32 KB
+L1 Data Cache: 2 x 32 KB
+L2 Cache: 2 MB
+Packaging: LGA775
+Enhanced Intel SpeedStep® Technology: Yes
+MMX(TM): Yes
+Intel® SSE: Yes
+Intel® SSE2: Yes
+Intel® SSE3: Yes
+Intel® SSE4: No
+Intel® AES-NI: No
+Intel® AVX: No
+Enhanced Halt State: Yes
+Execute Disable Bit: Yes
+Intel® Hyper-Threading Technology: No
+Intel® 64 Architecture: Yes
+Intel® virtualization technology: Yes
+Intel® vt-x with extended page tables: No
+System Graphics: 
+Expected Processor Frequency: 3.0 GHz
+Reported Processor Frequency: 3.10 GHz
+Expected System Bus Frequency: 800 MHz
+Reported System Bus Frequency: 826 MHz
+*************************************************************
