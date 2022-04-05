@@ -1,0 +1,3 @@
+NET ACCOUNT [/FORCELOGOFF:{minutes | NO}] [/MINPWLEN:length]
+[/MAXPWAGE:{days | UNLIMITED}] [/MINPWAGE:days] 
+[/UNIQUEPW:number] [/DOMAINS]
